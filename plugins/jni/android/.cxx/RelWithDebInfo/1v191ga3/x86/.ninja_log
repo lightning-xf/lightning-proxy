@@ -1,0 +1,11 @@
+# ninja log v5
+0	150	8001269518047004	CMakeFiles/jni.dir/include/dart_api_dl.c.o	8b75bb2180189155
+9	228	8001269518836073	CMakeFiles/jni.dir/dartjni.c.o	8478dede1b1c60c2
+5	818	8001269524716874	CMakeFiles/jni.dir/third_party/global_jni_env.c.o	e64bce63c990790d
+818	929	8001269525889532	D:/zhuomian/lightning-android/plugins/jni/android/build/intermediates/cxx/RelWithDebInfo/1v191ga3/obj/x86/libdartjni.so	d74597b6bfb97cf5
+0	9	0	clean	28519817fde48413
+3	199	8001959189167957	CMakeFiles/jni.dir/include/dart_api_dl.c.o	8b75bb2180189155
+15	259	8001959189753614	CMakeFiles/jni.dir/dartjni.c.o	8478dede1b1c60c2
+10	925	8001959196413203	CMakeFiles/jni.dir/third_party/global_jni_env.c.o	e64bce63c990790d
+926	1063	8001959197856173	D:/zhuomian/lightning-android/plugins/jni/android/build/intermediates/cxx/RelWithDebInfo/1v191ga3/obj/x86/libdartjni.so	d74597b6bfb97cf5
+3	130	8004623931284495	D:/zhuomian/lightning-android/plugins/jni/android/build/intermediates/cxx/RelWithDebInfo/1v191ga3/obj/x86/libdartjni.so	d74597b6bfb97cf5

@@ -1,0 +1,38 @@
+{
+  "buildFiles": [
+    "D:\\zhuomian\\lightning-android\\plugins\\jni\\src\\CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "D:\\SDK\\cmake\\3.22.1\\bin\\ninja.exe",
+      "-C",
+      "D:\\zhuomian\\lightning-android\\plugins\\jni\\android\\.cxx\\Debug\\5d5k176a\\x86_64",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "D:\\SDK\\cmake\\3.22.1\\bin\\ninja.exe",
+    "-C",
+    "D:\\zhuomian\\lightning-android\\plugins\\jni\\android\\.cxx\\Debug\\5d5k176a\\x86_64",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "jni::@6890427a1f51a3e7e1df": {
+      "toolchain": "toolchain",
+      "abi": "x86_64",
+      "artifactName": "jni",
+      "output": "D:\\zhuomian\\lightning-android\\plugins\\jni\\android\\build\\intermediates\\cxx\\Debug\\5d5k176a\\obj\\x86_64\\libdartjni.so",
+      "runtimeFiles": []
+    }
+  },
+  "toolchains": {
+    "toolchain": {
+      "cCompilerExecutable": "D:\\SDK\\ndk\\27.0.12077973\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang.exe",
+      "cppCompilerExecutable": "D:\\SDK\\ndk\\27.0.12077973\\toolchains\\llvm\\prebuilt\\windows-x86_64\\bin\\clang++.exe"
+    }
+  },
+  "cFileExtensions": [
+    "c"
+  ],
+  "cppFileExtensions": []
+}
