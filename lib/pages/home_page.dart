@@ -243,7 +243,7 @@ class _HomePageState extends ConsumerState<HomePage>
                     ),
                     const SizedBox(width: 8),
                     Text(
-                      'Version 16.9.27 • Build 1727',
+                      'Version 1.0.0 • Build 1',
                       style: TextStyle(
                         color: Colors.grey.shade600,
                         fontSize: 11,
@@ -495,7 +495,7 @@ class _HomePageState extends ConsumerState<HomePage>
                         Positioned(
                           right: 12,
                           child: Text(
-                            'v16.9.27',
+                            'v1.0.0',
                             style: TextStyle(
                               color: Colors.grey.shade700,
                               fontSize: 10,

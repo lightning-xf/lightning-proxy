@@ -1293,7 +1293,7 @@ class SettingsPage extends ConsumerWidget {
                         ),
                       ),
                       Text(
-                        '版本：16.9.15',
+                        '版本：1.0.0',
                         style: TextStyle(
                           color: Colors.grey.shade600,
                           fontSize: 13,
