@@ -48,7 +48,9 @@ class _AppSplittingPageState extends ConsumerState<AppSplittingPage> {
         .where(
           (app) =>
               app.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-              app.packageName.toLowerCase().contains(_searchQuery.toLowerCase()),
+              app.packageName.toLowerCase().contains(
+                _searchQuery.toLowerCase(),
+              ),
         )
         .toList();
 
@@ -86,32 +88,44 @@ class _AppSplittingPageState extends ConsumerState<AppSplittingPage> {
                   builder: (context, ref, child) {
                     final settings = ref.watch(vpnSettingsProvider);
                     return Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
                       decoration: BoxDecoration(
                         color: theme.cardTheme.color,
                         borderRadius: BorderRadius.circular(16),
-                        border: Border.all(color: Colors.white.withOpacity(0.05)),
+                        border: Border.all(
+                          color: Colors.white.withOpacity(0.05),
+                        ),
                       ),
                       child: Row(
                         children: [
                           Icon(
-                            settings.bypassApps ? Icons.block_rounded : Icons.vpn_lock_rounded,
+                            settings.bypassApps
+                                ? Icons.block_rounded
+                                : Icons.vpn_lock_rounded,
                             size: 20,
                             color: theme.colorScheme.primary,
                           ),
                           const SizedBox(width: 12),
                           Expanded(
                             child: Text(
-                              settings.bypassApps ? '绕过所选应用 (黑名单)' : '代理所选应用 (白名单)',
-                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                              settings.bypassApps
+                                  ? '绕过所选应用 (黑名单)'
+                                  : '代理所选应用 (白名单)',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                                fontSize: 14,
+                              ),
                             ),
                           ),
                           Switch(
                             value: settings.bypassApps,
                             onChanged: (v) {
-                              ref.read(vpnSettingsProvider.notifier).update(
-                                settings.copyWith(bypassApps: v),
-                              );
+                              ref
+                                  .read(vpnSettingsProvider.notifier)
+                                  .update(settings.copyWith(bypassApps: v));
                             },
                             activeColor: theme.colorScheme.primary,
                           ),
@@ -130,7 +144,10 @@ class _AppSplittingPageState extends ConsumerState<AppSplittingPage> {
                     prefixIcon: const Icon(Icons.search_rounded),
                     filled: true,
                     fillColor: theme.cardTheme.color,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 20,
+                      vertical: 12,
+                    ),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(16),
                       borderSide: BorderSide.none,
@@ -157,11 +174,16 @@ class _AppSplittingPageState extends ConsumerState<AppSplittingPage> {
                     color: theme.cardTheme.color,
                     borderRadius: BorderRadius.circular(16),
                     border: Border.all(
-                      color: isSelected ? theme.colorScheme.primary.withOpacity(0.3) : Colors.white.withOpacity(0.02),
+                      color: isSelected
+                          ? theme.colorScheme.primary.withOpacity(0.3)
+                          : Colors.white.withOpacity(0.02),
                     ),
                   ),
                   child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
                     leading: Container(
                       width: 40,
                       height: 40,
@@ -169,22 +191,34 @@ class _AppSplittingPageState extends ConsumerState<AppSplittingPage> {
                         color: Colors.white.withOpacity(0.05),
                         borderRadius: BorderRadius.circular(10),
                       ),
-                      child: const Icon(Icons.android_rounded, size: 28, color: Colors.grey),
+                      child: const Icon(
+                        Icons.android_rounded,
+                        size: 28,
+                        color: Colors.grey,
+                      ),
                     ),
                     title: Text(
                       app.name,
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
                     ),
                     subtitle: Text(
                       app.packageName,
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 12,
+                      ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
                     trailing: Checkbox(
                       value: isSelected,
                       activeColor: theme.colorScheme.primary,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(4),
+                      ),
                       onChanged: (v) {
                         HapticFeedback.lightImpact();
                         setState(() {

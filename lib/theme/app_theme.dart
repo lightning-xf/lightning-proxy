@@ -23,12 +23,36 @@ class AppTheme {
     ),
     scaffoldBackgroundColor: bgLight,
     textTheme: const TextTheme(
-      titleLarge: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: textMain),
-      titleMedium: TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: textMain),
-      titleSmall: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: textSecondary),
-      bodyLarge: TextStyle(fontWeight: FontWeight.w600, fontSize: 20, color: textMain),
-      bodyMedium: TextStyle(fontWeight: FontWeight.w500, fontSize: 14, color: textMain),
-      bodySmall: TextStyle(fontWeight: FontWeight.w500, fontSize: 13, color: textSecondary),
+      titleLarge: TextStyle(
+        fontWeight: FontWeight.w700,
+        fontSize: 18,
+        color: textMain,
+      ),
+      titleMedium: TextStyle(
+        fontWeight: FontWeight.w600,
+        fontSize: 16,
+        color: textMain,
+      ),
+      titleSmall: TextStyle(
+        fontWeight: FontWeight.w600,
+        fontSize: 14,
+        color: textSecondary,
+      ),
+      bodyLarge: TextStyle(
+        fontWeight: FontWeight.w600,
+        fontSize: 20,
+        color: textMain,
+      ),
+      bodyMedium: TextStyle(
+        fontWeight: FontWeight.w500,
+        fontSize: 14,
+        color: textMain,
+      ),
+      bodySmall: TextStyle(
+        fontWeight: FontWeight.w500,
+        fontSize: 13,
+        color: textSecondary,
+      ),
     ),
     appBarTheme: const AppBarTheme(
       backgroundColor: Colors.transparent,
@@ -51,10 +75,7 @@ class AppTheme {
         side: const BorderSide(color: strokeColor, width: 1),
       ),
     ),
-    dividerTheme: const DividerThemeData(
-      color: strokeColor,
-      thickness: 1,
-    ),
+    dividerTheme: const DividerThemeData(color: strokeColor, thickness: 1),
   );
 
   static ThemeData darkTheme = ThemeData(
@@ -69,12 +90,36 @@ class AppTheme {
     ),
     scaffoldBackgroundColor: bgDark,
     textTheme: const TextTheme(
-      titleLarge: TextStyle(fontWeight: FontWeight.w700, fontSize: 18, color: textDark),
-      titleMedium: TextStyle(fontWeight: FontWeight.w600, fontSize: 16, color: textDark),
-      titleSmall: TextStyle(fontWeight: FontWeight.w600, fontSize: 14, color: textSecondary),
-      bodyLarge: TextStyle(fontWeight: FontWeight.w600, fontSize: 20, color: textDark),
-      bodyMedium: TextStyle(fontWeight: FontWeight.w500, fontSize: 14, color: textDark),
-      bodySmall: TextStyle(fontWeight: FontWeight.w500, fontSize: 13, color: textSecondary),
+      titleLarge: TextStyle(
+        fontWeight: FontWeight.w700,
+        fontSize: 18,
+        color: textDark,
+      ),
+      titleMedium: TextStyle(
+        fontWeight: FontWeight.w600,
+        fontSize: 16,
+        color: textDark,
+      ),
+      titleSmall: TextStyle(
+        fontWeight: FontWeight.w600,
+        fontSize: 14,
+        color: textSecondary,
+      ),
+      bodyLarge: TextStyle(
+        fontWeight: FontWeight.w600,
+        fontSize: 20,
+        color: textDark,
+      ),
+      bodyMedium: TextStyle(
+        fontWeight: FontWeight.w500,
+        fontSize: 14,
+        color: textDark,
+      ),
+      bodySmall: TextStyle(
+        fontWeight: FontWeight.w500,
+        fontSize: 13,
+        color: textSecondary,
+      ),
     ),
     appBarTheme: const AppBarTheme(
       backgroundColor: Colors.transparent,

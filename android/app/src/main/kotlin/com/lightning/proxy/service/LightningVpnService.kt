@@ -29,6 +29,13 @@ import com.lightning.proxy.channel.VpnChannel
 import com.lightning.proxy.channel.VpnLogChannel
 import com.lightning.proxy.LightningVpnTileService
 import libxray.Libxray
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.isActive
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -38,6 +45,7 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 
 class LightningVpnService : VpnService() {
+    private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var vpnInterface: ParcelFileDescriptor? = null
     @Volatile
     private var isRunning = false
@@ -259,16 +267,14 @@ class LightningVpnService : VpnService() {
                 }
             }
             VpnLogChannel.sendLogToFlutter("[Kotlin] ========== TUN 接口配置 ==========", "debug")
-            VpnLogChannel.sendLogToFlutter("[Kotlin] MTU: 1350, 地址: 172.19.0.1/24, IPv6: fdfe:dcba:9876::1/126", "debug")
-            VpnLogChannel.sendLogToFlutter("[Kotlin] 路由: 0.0.0.0/0, ::/0", "debug")
+            VpnLogChannel.sendLogToFlutter("[Kotlin] MTU: 1350, 地址: 172.19.0.1/24", "debug")
+            VpnLogChannel.sendLogToFlutter("[Kotlin] 路由: 0.0.0.0/0", "debug")
 
             val builder = Builder()
                 .setSession("Lightning VPN")
                 .setMtu(1350) // Reduced MTU for UDP/KCP overhead
                 .addAddress("172.19.0.1", 24)
-                .addAddress("fdfe:dcba:9876::1", 126)
                 .addRoute("0.0.0.0", 0)
-                .addRoute("::", 0)
 
             if (dnsServers.isEmpty()) {
                 VpnLogChannel.sendLogToFlutter("[Kotlin] DNS: 使用默认服务器 (8.8.8.8, 1.1.1.1)", "debug")
@@ -285,6 +291,16 @@ class LightningVpnService : VpnService() {
                 }
             }
             builder.setBlocking(true)
+            
+            // [Fix] 彻底封杀应用自身的 UDP 回环
+            // 物理截断 Hysteria2 等协议的底层 UDP 死锁
+            try {
+                builder.addDisallowedApplication(packageName)
+                VpnLogChannel.sendLogToFlutter("[Kotlin] 应用自身已排除出 VPN: $packageName", "debug")
+            } catch (e: Exception) {
+                VpnLogChannel.sendLogToFlutter("[Kotlin] 排除自身应用失败: ${e.message}", "warning")
+            }
+
             VpnLogChannel.sendLogToFlutter("[Kotlin] 阻塞模式: 已启用", "debug")
 
             // CRITICAL: Allow LAN Gateway functionality
@@ -374,39 +390,42 @@ class LightningVpnService : VpnService() {
             VpnLogChannel.sendLogToFlutter("[Kotlin] 步骤4: 启动 Socket 保护服务器...", "debug")
             startLocalSocketServer()
 
-            VpnLogChannel.sendLogToFlutter("[Kotlin] 步骤5: 调用 Libxray.startXray()...", "info")
-            val result = try {
-                Libxray.startXray(configPayload)
-            } catch (e: Exception) {
-                VpnLogChannel.sendLogToFlutter("[Kotlin] Libxray.startXray 抛出异常: ${e.message}", "error")
-                e.message ?: "Unknown error during Xray start"
+            VpnLogChannel.sendLogToFlutter("[Kotlin] 步骤5: 在协程中启动 Xray 核心...", "info")
+            serviceScope.launch {
+                val result = try {
+                    Libxray.startXray(configPayload)
+                } catch (e: Exception) {
+                    VpnLogChannel.sendLogToFlutter("[Kotlin] Libxray.startXray 抛出异常: ${e.message}", "error")
+                    e.message ?: "Unknown error during Xray start"
+                }
+
+                withContext(Dispatchers.Main) {
+                    if (result.isNotEmpty()) {
+                        val error = "Xray 启动失败: $result"
+                        VpnLogChannel.sendLogToFlutter("[Kotlin] ❌ Xray 启动失败: $error", "error")
+
+                        // Report error to Flutter
+                        VpnChannel.reportError(result)
+
+                        stopVpn()
+                    } else {
+                        VpnLogChannel.sendLogToFlutter("[Kotlin] ✅ Xray 核心启动成功!", "info")
+                        isRunning = true
+                        isServiceRunning = true
+                        isStarting.set(false)
+                        VpnChannel.updateStatus(true)
+                        com.lightning.proxy.LightningVpnTileService.requestTileUpdate(this@LightningVpnService)
+                        VpnLogChannel.sendLogToFlutter("[Kotlin] VPN 完全启动! isRunning=true", "info")
+
+                        // Start traffic stats update
+                        startStatsUpdate()
+
+                        // Save state for auto-restart
+                        val prefs = getSharedPreferences("lightning_prefs", Context.MODE_PRIVATE)
+                        prefs.edit().putBoolean("is_vpn_running", true).putString("last_config", actualConfig).apply()
+                    }
+                }
             }
-
-            if (result.isNotEmpty()) {
-                val error = "Xray 启动失败: $result"
-                VpnLogChannel.sendLogToFlutter("[Kotlin] ❌ Xray 启动失败: $error", "error")
-
-                // Report error to Flutter
-                VpnChannel.reportError(result)
-
-                stopVpn()
-                return
-            }
-
-            VpnLogChannel.sendLogToFlutter("[Kotlin] ✅ Xray 核心启动成功!", "info")
-            isRunning = true
-            isServiceRunning = true
-            isStarting.set(false)
-            VpnChannel.updateStatus(true)
-            com.lightning.proxy.LightningVpnTileService.requestTileUpdate(this)
-            VpnLogChannel.sendLogToFlutter("[Kotlin] VPN 完全启动! isRunning=true", "info")
-
-            // Start traffic stats update
-            startStatsUpdate()
-
-            // Save state for auto-restart
-            val prefs = getSharedPreferences("lightning_prefs", Context.MODE_PRIVATE)
-            prefs.edit().putBoolean("is_vpn_running", true).putString("last_config", actualConfig).apply()
 
         } catch (e: Exception) {
             isStarting.set(false)
@@ -503,10 +522,39 @@ class LightningVpnService : VpnService() {
     private fun startLogcatObserver() {
         if (logcatProcess != null) return
         
-        Thread {
+        serviceScope.launch(Dispatchers.IO) {
             try {
-                // 清除旧日志并开始捕获 libxray 相关日志
+                // 清除旧日志
                 Runtime.getRuntime().exec("logcat -c")
+                
+                // [Fix] 同时监听 Logcat 和 Xray 专用日志文件
+                val assetDir = File(applicationContext.filesDir, "last_xray_config.json").parentFile
+                val accessLog = File(assetDir, "xray_access.log")
+                val errorLog = File(assetDir, "xray_error.log")
+
+                // 启动子协程轮询 Xray 本地日志文件
+                launch {
+                    val files = listOf(accessLog, errorLog)
+                    val readers = files.map { if (it.exists()) it.bufferedReader() else null }.toMutableList()
+                    
+                    while (isActive) {
+                        files.forEachIndexed { index, file ->
+                            if (readers[index] == null && file.exists()) {
+                                readers[index] = file.bufferedReader()
+                            }
+                            readers[index]?.let { reader ->
+                                var line = reader.readLine()
+                                while (line != null) {
+                                    // 核心开发者明确要求：所有内核级别的原生日志，必须以 debug 级别推给 UI 进行渲染
+                                    VpnLogChannel.sendLogToFlutter("[Xray-Core] $line", "debug")
+                                    line = reader.readLine()
+                                }
+                            }
+                        }
+                        kotlinx.coroutines.delay(500) // 每 500ms 检查一次新日志
+                    }
+                }
+
                 logcatProcess = Runtime.getRuntime().exec("logcat -s libxray:V Xray:V LightningVpnService:V *:E")
                 
                 val reader = logcatProcess?.inputStream?.bufferedReader()
@@ -524,7 +572,7 @@ class LightningVpnService : VpnService() {
             } catch (e: Exception) {
                 Log.e(TAG, "Logcat observer error: ${e.message}")
             }
-        }.start()
+        }
     }
 
     private fun stopLogcatObserver() {
@@ -698,6 +746,7 @@ class LightningVpnService : VpnService() {
 
     override fun onDestroy() {
         super.onDestroy()
+        serviceScope.cancel()
         isServiceRunning = false
         if (networkCallbackRegistered) {
             val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager

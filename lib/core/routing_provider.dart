@@ -11,9 +11,9 @@ class RoutingNotifier extends StateNotifier<List<RuleModel>> {
   Future<void> _loadRules() async {
     final prefs = await SharedPreferences.getInstance();
     // Use a version key to force reset to mature rules if needed
-    const rulesVersion = 'v5'; 
+    const rulesVersion = 'v5';
     final currentVersion = prefs.getString('routing_rules_version');
-    
+
     final rulesJson = prefs.getStringList('routing_rules');
     if (rulesJson == null || currentVersion != rulesVersion) {
       _applyMatureRules();
@@ -64,7 +64,7 @@ class RoutingNotifier extends StateNotifier<List<RuleModel>> {
           'geosite:twitter',
           'geosite:facebook',
           'geosite:netflix',
-          'geosite:youtube'
+          'geosite:youtube',
         ],
         outboundTag: 'proxy',
       ),
@@ -93,7 +93,7 @@ class RoutingNotifier extends StateNotifier<List<RuleModel>> {
           '223.6.6.6',
           '119.29.29.29',
           '180.76.76.76',
-          '114.114.114.114'
+          '114.114.114.114',
         ],
         outboundTag: 'direct',
       ),
@@ -120,10 +120,7 @@ class RoutingNotifier extends StateNotifier<List<RuleModel>> {
   void toggleRule(String id) {
     state = [
       for (final r in state)
-        if (r.id == id)
-          r.copyWith(enabled: !r.enabled)
-        else
-          r,
+        if (r.id == id) r.copyWith(enabled: !r.enabled) else r,
     ];
     _saveRules();
   }

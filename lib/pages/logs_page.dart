@@ -9,15 +9,9 @@ class LogsPageState {
   final bool autoScroll;
   final String filterLevel;
 
-  LogsPageState({
-    this.autoScroll = true,
-    this.filterLevel = 'all',
-  });
+  LogsPageState({this.autoScroll = true, this.filterLevel = 'all'});
 
-  LogsPageState copyWith({
-    bool? autoScroll,
-    String? filterLevel,
-  }) {
+  LogsPageState copyWith({bool? autoScroll, String? filterLevel}) {
     return LogsPageState(
       autoScroll: autoScroll ?? this.autoScroll,
       filterLevel: filterLevel ?? this.filterLevel,
@@ -28,11 +22,16 @@ class LogsPageState {
 class LogsPageNotifier extends StateNotifier<LogsPageState> {
   LogsPageNotifier() : super(LogsPageState());
 
-  void toggleAutoScroll() => state = state.copyWith(autoScroll: !state.autoScroll);
-  void setFilterLevel(String level) => state = state.copyWith(filterLevel: level);
+  void toggleAutoScroll() =>
+      state = state.copyWith(autoScroll: !state.autoScroll);
+  void setFilterLevel(String level) =>
+      state = state.copyWith(filterLevel: level);
 }
 
-final logsPageUIProvider = StateNotifierProvider<LogsPageNotifier, LogsPageState>((ref) => LogsPageNotifier());
+final logsPageUIProvider =
+    StateNotifierProvider<LogsPageNotifier, LogsPageState>(
+      (ref) => LogsPageNotifier(),
+    );
 
 class LogsPage extends ConsumerStatefulWidget {
   const LogsPage({super.key});
@@ -62,14 +61,19 @@ class _LogsPageState extends ConsumerState<LogsPage> {
     final bool isMobile = MediaQuery.of(context).size.width < 720;
 
     // Auto scroll when logs change
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom(uiState.autoScroll));
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _scrollToBottom(uiState.autoScroll),
+    );
 
     return Scaffold(
       backgroundColor: Colors.transparent,
       appBar: isMobile
           ? AppBar(
               leading: IconButton(
-                icon: Icon(Icons.menu_rounded, color: theme.colorScheme.primary),
+                icon: Icon(
+                  Icons.menu_rounded,
+                  color: theme.colorScheme.primary,
+                ),
                 onPressed: () {
                   HapticFeedback.lightImpact();
                   Scaffold.of(context).openDrawer();
@@ -87,23 +91,33 @@ class _LogsPageState extends ConsumerState<LogsPage> {
                 PopupMenuButton<String>(
                   icon: Icon(
                     Icons.filter_list_rounded,
-                    color: uiState.filterLevel == 'all' ? Colors.grey : theme.colorScheme.primary,
+                    color: uiState.filterLevel == 'all'
+                        ? Colors.grey
+                        : theme.colorScheme.primary,
                     size: 22,
                   ),
-                  onSelected: (v) => ref.read(logsPageUIProvider.notifier).setFilterLevel(v),
+                  onSelected: (v) =>
+                      ref.read(logsPageUIProvider.notifier).setFilterLevel(v),
                   itemBuilder: (context) => [
                     const PopupMenuItem(value: 'all', child: Text('全部日志')),
                     const PopupMenuItem(value: 'debug', child: Text('DEBUG')),
                     const PopupMenuItem(value: 'info', child: Text('INFO')),
-                    const PopupMenuItem(value: 'warning', child: Text('WARNING')),
+                    const PopupMenuItem(
+                      value: 'warning',
+                      child: Text('WARNING'),
+                    ),
                     const PopupMenuItem(value: 'error', child: Text('ERROR')),
                   ],
                 ),
-                IconButton( 
+                IconButton(
                   icon: Icon(
-                    uiState.autoScroll ? Icons.unfold_less_rounded : Icons.unfold_more_rounded,
+                    uiState.autoScroll
+                        ? Icons.unfold_less_rounded
+                        : Icons.unfold_more_rounded,
                     size: 22,
-                    color: uiState.autoScroll ? theme.colorScheme.primary : Colors.grey,
+                    color: uiState.autoScroll
+                        ? theme.colorScheme.primary
+                        : Colors.grey,
                   ),
                   onPressed: () {
                     ref.read(logsPageUIProvider.notifier).toggleAutoScroll();
@@ -112,10 +126,18 @@ class _LogsPageState extends ConsumerState<LogsPage> {
                 IconButton(
                   icon: const Icon(Icons.share_rounded, size: 20),
                   onPressed: () {
-                    final text = logs.map((l) => '[${l.timestamp}] ${l.level.toUpperCase()}: ${l.message}').join('\n');
+                    final text = logs
+                        .map(
+                          (l) =>
+                              '[${l.timestamp}] ${l.level.toUpperCase()}: ${l.message}',
+                        )
+                        .join('\n');
                     Clipboard.setData(ClipboardData(text: text));
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('日志已复制到剪贴板'), behavior: SnackBarBehavior.floating),
+                      const SnackBar(
+                        content: Text('日志已复制到剪贴板'),
+                        behavior: SnackBarBehavior.floating,
+                      ),
                     );
                   },
                 ),
@@ -137,7 +159,10 @@ class _LogsPageState extends ConsumerState<LogsPage> {
                 ? _buildEmptyState(context)
                 : ListView.builder(
                     controller: _scrollController,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
                     itemCount: logs.length,
                     itemBuilder: (context, index) {
                       final log = logs[index];
@@ -156,7 +181,10 @@ class _LogsPageState extends ConsumerState<LogsPage> {
                               ),
                             ),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 4,
+                                vertical: 1,
+                              ),
                               decoration: BoxDecoration(
                                 color: color.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(4),
@@ -228,10 +256,13 @@ class _LogsPageState extends ConsumerState<LogsPage> {
           PopupMenuButton<String>(
             icon: Icon(
               Icons.filter_list_rounded,
-              color: uiState.filterLevel == 'all' ? Colors.grey : theme.colorScheme.primary,
+              color: uiState.filterLevel == 'all'
+                  ? Colors.grey
+                  : theme.colorScheme.primary,
               size: 22,
             ),
-            onSelected: (v) => ref.read(logsPageUIProvider.notifier).setFilterLevel(v),
+            onSelected: (v) =>
+                ref.read(logsPageUIProvider.notifier).setFilterLevel(v),
             itemBuilder: (context) => [
               const PopupMenuItem(value: 'all', child: Text('全部日志')),
               const PopupMenuItem(value: 'debug', child: Text('DEBUG')),
@@ -240,11 +271,15 @@ class _LogsPageState extends ConsumerState<LogsPage> {
               const PopupMenuItem(value: 'error', child: Text('ERROR')),
             ],
           ),
-          IconButton( 
+          IconButton(
             icon: Icon(
-              uiState.autoScroll ? Icons.unfold_less_rounded : Icons.unfold_more_rounded,
+              uiState.autoScroll
+                  ? Icons.unfold_less_rounded
+                  : Icons.unfold_more_rounded,
               size: 22,
-              color: uiState.autoScroll ? theme.colorScheme.primary : Colors.grey,
+              color: uiState.autoScroll
+                  ? theme.colorScheme.primary
+                  : Colors.grey,
             ),
             onPressed: () {
               ref.read(logsPageUIProvider.notifier).toggleAutoScroll();
@@ -253,10 +288,18 @@ class _LogsPageState extends ConsumerState<LogsPage> {
           IconButton(
             icon: const Icon(Icons.share_rounded, size: 20),
             onPressed: () {
-              final text = logs.map((l) => '[${l.timestamp}] ${l.level.toUpperCase()}: ${l.message}').join('\n');
+              final text = logs
+                  .map(
+                    (l) =>
+                        '[${l.timestamp}] ${l.level.toUpperCase()}: ${l.message}',
+                  )
+                  .join('\n');
               Clipboard.setData(ClipboardData(text: text));
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('日志已复制到剪贴板'), behavior: SnackBarBehavior.floating),
+                const SnackBar(
+                  content: Text('日志已复制到剪贴板'),
+                  behavior: SnackBarBehavior.floating,
+                ),
               );
             },
           ),

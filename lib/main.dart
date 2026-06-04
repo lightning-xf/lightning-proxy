@@ -10,8 +10,6 @@ import 'package:lightning/pages/home_page.dart';
 import 'package:lightning/pages/splash_screen.dart';
 import 'package:lightning/theme/app_theme.dart';
 
-
-
 // Provider for showing splash screen
 class SplashNotifier extends StateNotifier<bool> {
   static bool _hasShownSplash = false;
@@ -20,7 +18,7 @@ class SplashNotifier extends StateNotifier<bool> {
       _hasShownSplash = true;
     }
   }
-  
+
   void finish() {
     state = false;
   }
@@ -32,7 +30,12 @@ final showSplashProvider = StateNotifierProvider<SplashNotifier, bool>((ref) {
 
 // Provider for theme mode
 class ThemeModeNotifier extends StateNotifier<ThemeMode> {
-  ThemeModeNotifier(bool? isDark) : super(isDark == null ? ThemeMode.system : (isDark ? ThemeMode.dark : ThemeMode.light));
+  ThemeModeNotifier(bool? isDark)
+    : super(
+        isDark == null
+            ? ThemeMode.system
+            : (isDark ? ThemeMode.dark : ThemeMode.light),
+      );
 
   Future<void> toggle() async {
     state = state == ThemeMode.dark ? ThemeMode.light : ThemeMode.dark;
@@ -41,13 +44,15 @@ class ThemeModeNotifier extends StateNotifier<ThemeMode> {
   }
 }
 
-final themeModeProvider = StateNotifierProvider<ThemeModeNotifier, ThemeMode>((ref) {
+final themeModeProvider = StateNotifierProvider<ThemeModeNotifier, ThemeMode>((
+  ref,
+) {
   return throw UnimplementedError();
 });
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   final prefs = await SharedPreferences.getInstance();
   final isDark = prefs.getBool('is_dark_mode');
 
@@ -56,26 +61,32 @@ void main() async {
       themeModeProvider.overrideWith((ref) => ThemeModeNotifier(isDark)),
     ],
   );
-  
+
   // 初始化日志容器引用，以便在 LogNotifier 中访问 vpnProvider
   container.read(logProvider.notifier).setContainer(container);
 
   // Capture Flutter framework errors
   FlutterError.onError = (details) {
     FlutterError.presentError(details);
-    container.read(logProvider.notifier).addLog('error', 'Flutter Error: ${details.exceptionAsString()}');
+    container
+        .read(logProvider.notifier)
+        .addLog('error', 'Flutter Error: ${details.exceptionAsString()}');
   };
 
   // Capture platform-level errors (e.g. from async tasks)
   PlatformDispatcher.instance.onError = (error, stack) {
-    container.read(logProvider.notifier).addLog('error', 'Platform Error: $error');
+    container
+        .read(logProvider.notifier)
+        .addLog('error', 'Platform Error: $error');
     return true;
   };
 
-  runApp(UncontrolledProviderScope(
-    container: container,
-    child: const LightningApp(),
-  ));
+  runApp(
+    UncontrolledProviderScope(
+      container: container,
+      child: const LightningApp(),
+    ),
+  );
 }
 
 class LightningApp extends ConsumerWidget {
@@ -94,10 +105,7 @@ class LightningApp extends ConsumerWidget {
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       locale: locale,
-      supportedLocales: const [
-        Locale('zh', 'CN'),
-        Locale('en', 'US'),
-      ],
+      supportedLocales: const [Locale('zh', 'CN'), Locale('en', 'US')],
       localizationsDelegates: const [
         GlobalMaterialLocalizations.delegate,
         GlobalWidgetsLocalizations.delegate,

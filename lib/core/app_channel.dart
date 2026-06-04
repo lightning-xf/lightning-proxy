@@ -5,7 +5,11 @@ class AppInfo {
   final String packageName;
   final bool isSystem;
 
-  AppInfo({required this.name, required this.packageName, required this.isSystem});
+  AppInfo({
+    required this.name,
+    required this.packageName,
+    required this.isSystem,
+  });
 
   factory AppInfo.fromMap(Map<dynamic, dynamic> map) {
     return AppInfo(
@@ -17,10 +21,14 @@ class AppInfo {
 }
 
 class AppChannel {
-  static const MethodChannel _channel = MethodChannel('com.lightning.proxy/apps');
+  static const MethodChannel _channel = MethodChannel(
+    'com.lightning.proxy/apps',
+  );
 
   static Future<List<AppInfo>> getInstalledApps() async {
-    final List<dynamic> result = await _channel.invokeMethod('getInstalledApps');
+    final List<dynamic> result = await _channel.invokeMethod(
+      'getInstalledApps',
+    );
     return result.map((e) => AppInfo.fromMap(e as Map)).toList();
   }
 }

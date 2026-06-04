@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lightning/core/vpn_provider.dart';
@@ -8,12 +9,17 @@ class LogEntry {
   final String level;
   final String message;
 
-  LogEntry({required this.timestamp, required this.level, required this.message});
+  LogEntry({
+    required this.timestamp,
+    required this.level,
+    required this.message,
+  });
 }
 
 class LogNotifier extends StateNotifier<List<LogEntry>> {
   static const _methodChannel = MethodChannel('com.lightning.proxy/log');
   static const _eventChannel = EventChannel('com.lightning.proxy/vpn_logs');
+  StreamSubscription? _subscription;
 
   LogNotifier() : super([]) {
     _methodChannel.setMethodCallHandler((call) async {
@@ -24,7 +30,7 @@ class LogNotifier extends StateNotifier<List<LogEntry>> {
       }
     });
 
-    _eventChannel.receiveBroadcastStream().listen((event) {
+    _subscription = _eventChannel.receiveBroadcastStream().listen((event) {
       if (event is String) {
         // 确保 container 已初始化
         if (_container == null) return;
@@ -36,7 +42,7 @@ class LogNotifier extends StateNotifier<List<LogEntry>> {
 
         String level = 'info';
         String message = event;
-        
+
         if (event.contains('|')) {
           final parts = event.split('|');
           level = parts[0];
@@ -46,11 +52,11 @@ class LogNotifier extends StateNotifier<List<LogEntry>> {
         // 第二步：拦截并翻译日志
         if (message.contains('auto-node-')) {
           final vpnState = _container!.read(vpnProvider);
-          
+
           // 使用正则匹配 auto-node-数字
           final regExp = RegExp(r'auto-node-\d+');
           final matches = regExp.allMatches(message);
-          
+
           String translatedMessage = message;
           String? lastMatchedRealName;
 
@@ -58,7 +64,9 @@ class LogNotifier extends StateNotifier<List<LogEntry>> {
 
           // 第三步：同步更新主 UI 的当前节点状态
           if (lastMatchedRealName != null && vpnState.isRunning) {
-            _container!.read(vpnProvider.notifier).updateCurrentNodeName(lastMatchedRealName);
+            _container!
+                .read(vpnProvider.notifier)
+                .updateCurrentNodeName(lastMatchedRealName);
           }
         }
 
@@ -76,17 +84,11 @@ class LogNotifier extends StateNotifier<List<LogEntry>> {
 
     // 检查日志等级设置
     final settings = _container!.read(vpnSettingsProvider);
-    final levels = {
-      'debug': 0,
-      'info': 1,
-      'warning': 2,
-      'error': 3,
-      'none': 4,
-    };
-    
+    final levels = {'debug': 0, 'info': 1, 'warning': 2, 'error': 3, 'none': 4};
+
     final currentLevel = levels[settings.logLevel.toLowerCase()] ?? 1;
     final logPriority = levels[level.toLowerCase()] ?? 1;
-    
+
     // 如果当前日志优先级低于设置的最小输出等级，则忽略
     if (logPriority < currentLevel) {
       return;
@@ -100,6 +102,12 @@ class LogNotifier extends StateNotifier<List<LogEntry>> {
 
   void clearLogs() {
     state = [];
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
   }
 }
 

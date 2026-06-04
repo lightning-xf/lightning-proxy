@@ -1098,10 +1098,7 @@ class _HomeContent extends ConsumerWidget {
     );
   }
 
-  Widget _buildHorizontalDataPanel(
-    BuildContext context,
-    WidgetRef ref,
-  ) {
+  Widget _buildHorizontalDataPanel(BuildContext context, WidgetRef ref) {
     final s = S.of(context, ref);
     final theme = Theme.of(context);
     final isRunning = ref.watch(vpnProvider.select((s) => s.isRunning));
@@ -1413,14 +1410,16 @@ class _HomeContent extends ConsumerWidget {
                               ),
                               decoration: BoxDecoration(
                                 color:
-                                    (node.latency! > 0
-                                            ? Colors.greenAccent
-                                            : Colors.redAccent)
+                                    (node.latency! == -3
+                                            ? primaryColor
+                                            : (node.latency! > 0
+                                                  ? Colors.greenAccent
+                                                  : Colors.redAccent))
                                         .withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(4),
                               ),
                               child: Text(
-                                node.latency! == -1
+                                node.latency! == -3 || node.latency! == -1
                                     ? '测试中...'
                                     : (node.latency! == -2
                                           ? '超时'
@@ -1428,9 +1427,11 @@ class _HomeContent extends ConsumerWidget {
                                 style: TextStyle(
                                   fontSize: 9,
                                   fontWeight: FontWeight.w900,
-                                  color: node.latency! > 0
-                                      ? Colors.greenAccent
-                                      : Colors.redAccent,
+                                  color: node.latency! == -3
+                                      ? primaryColor
+                                      : (node.latency! > 0
+                                            ? Colors.greenAccent
+                                            : Colors.redAccent),
                                 ),
                               ),
                             ),

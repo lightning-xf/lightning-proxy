@@ -10,8 +10,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 final subscriptionProvider =
     StateNotifierProvider<SubscriptionNotifier, List<SubscriptionModel>>((ref) {
-  return SubscriptionNotifier(ref);
-});
+      return SubscriptionNotifier(ref);
+    });
 
 class SubscriptionNotifier extends StateNotifier<List<SubscriptionModel>> {
   final Ref _ref;
@@ -65,7 +65,7 @@ class SubscriptionNotifier extends StateNotifier<List<SubscriptionModel>> {
 
   void updateSubscription(String id) async {
     if (_updatingIds.contains(id)) return;
-    
+
     final index = state.indexWhere((e) => e.id == id);
     if (index == -1) return;
 
@@ -83,6 +83,8 @@ class SubscriptionNotifier extends StateNotifier<List<SubscriptionModel>> {
       if (sub.isFile) {
         final file = File(sub.url);
         if (await file.exists()) {
+          // [Fix] 异步守卫：await 结束后必须检查 mounted
+          if (!mounted) return;
           content = await file.readAsString();
         } else {
           throw Exception('文件不存在: ${sub.url}');
@@ -91,16 +93,20 @@ class SubscriptionNotifier extends StateNotifier<List<SubscriptionModel>> {
         // High Tolerance Subscription Engine:
         // 1. User-Agent Spoofing (v2rayNG/1.8.5)
         // 2. Accept Header widening
-        final response = await http.get(
-          Uri.parse(sub.url),
-          headers: {
-            'User-Agent': 'v2rayNG/1.8.5',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'zh-CN,zh;q=0.8,en-US;q=0.5,en;q=0.3',
-          },
-        ).timeout(
-          const Duration(seconds: 15),
-        );
+        final response = await http
+            .get(
+              Uri.parse(sub.url),
+              headers: {
+                'User-Agent': 'v2rayNG/1.8.5',
+                'Accept':
+                    'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+                'Accept-Language': 'zh-CN,zh;q=0.8,en-US;q=0.5,en;q=0.3',
+              },
+            )
+            .timeout(const Duration(seconds: 15));
+
+        // [Fix] 异步守卫：网络请求 await 结束后必须检查 mounted
+        if (!mounted) return;
 
         if (response.statusCode == 200) {
           // Use bodyBytes with utf8.decode to handle Chinese characters correctly
@@ -129,8 +135,11 @@ class SubscriptionNotifier extends StateNotifier<List<SubscriptionModel>> {
         }
       }
 
+      // [Final Check] 确保在解析和更新 Provider 前 mounted 依然有效
+      if (!mounted) return;
+
       final nodes = LinkParser.parse(content);
-      
+
       if (nodes.isEmpty) {
         // If no nodes found, it might be an expired subscription or parsing error.
         // We keep the old nodes but mark it with a warning/error to avoid losing everything.
@@ -148,13 +157,17 @@ class SubscriptionNotifier extends StateNotifier<List<SubscriptionModel>> {
         isUpdating: false,
       );
     } catch (e) {
-      state[index] = sub.copyWith(error: e.toString(), isUpdating: false);
+      if (mounted) {
+        state[index] = sub.copyWith(error: e.toString(), isUpdating: false);
+      }
     } finally {
       _updatingIds.remove(id);
     }
 
-    state = [...state];
-    _save();
+    if (mounted) {
+      state = [...state];
+      _save();
+    }
   }
 
   void updateSubscriptionModel(SubscriptionModel sub) {

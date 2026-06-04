@@ -513,6 +513,7 @@ class VpnNotifier extends StateNotifier<VpnState> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _autoUpdateTimer?.cancel();
     _stopStatsTimer();
     super.dispose();
   }

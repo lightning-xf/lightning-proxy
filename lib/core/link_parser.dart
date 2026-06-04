@@ -4,7 +4,13 @@ import 'package:crypto/crypto.dart';
 import 'package:lightning/core/node_model.dart';
 
 class LinkParser {
-  static String _generateId(String prefix, String name, String address, int port, [String? extra]) {
+  static String _generateId(
+    String prefix,
+    String name,
+    String address,
+    int port, [
+    String? extra,
+  ]) {
     final input = '$prefix$name$address$port${extra ?? ''}';
     return sha1.convert(utf8.encode(input)).toString();
   }
@@ -26,35 +32,70 @@ class LinkParser {
     }
 
     // 2. Check if it's Clash YAML (Sniffing for proxies: or port:)
-    if (trimmedText.contains('proxies:') || (trimmedText.contains('name:') && trimmedText.contains('type:') && trimmedText.contains('server:'))) {
+    if (trimmedText.contains('proxies:') ||
+        (trimmedText.contains('name:') &&
+            trimmedText.contains('type:') &&
+            trimmedText.contains('server:'))) {
       try {
         final yamlNodes = _parseClashYaml(trimmedText);
         if (yamlNodes.isNotEmpty) return yamlNodes;
       } catch (e) {
-        debugPrint('YAML sniffing matched but parse failed, trying other methods: $e');
+        debugPrint(
+          'YAML sniffing matched but parse failed, trying other methods: $e',
+        );
       }
     }
-    
+
     // 3. Handle Subscription Content (Base64 or Multiple Lines)
     String content = trimmedText;
-    
-    // Improved Base64 detection: 
+
+    // [Fix] 增强型正则清洗：处理机场下发文本中夹杂的 HTML 标签、乱码或干扰字符
+    // 1. 过滤掉常见的 HTML 标签 (如 <br>, <p> 等)
+    content = content.replaceAll(RegExp(r'<[^>]*>'), '');
+    // 2. 过滤掉常见的网页转义符
+    content = content.replaceAll('&nbsp;', ' ').replaceAll('&amp;', '&');
+
+    // [Fix] 混合文本保底提取：如果文本中混有大量的垃圾字符，直接用正则扫描出所有协议 URI
+    final List<String> extractedUris = [];
+    final protocolRegex = RegExp(
+      r'(vmess|vless|trojan|ss|socks5|socks|http|https|hysteria2|hy2|tuic|wireguard|shadowrocket):\/\/[^\s\r\n\t<>"]+',
+      caseSensitive: false,
+    );
+    final matches = protocolRegex.allMatches(content);
+    for (final match in matches) {
+      extractedUris.add(match.group(0)!);
+    }
+
+    // 如果正则扫描到了 URI，说明可能是混合文本，直接进入 URI 解析流程
+    if (extractedUris.isNotEmpty && !content.contains('proxies:')) {
+      for (var uri in extractedUris) {
+        try {
+          _parseSingleUri(uri, nodes);
+        } catch (_) {}
+      }
+      return _deduplicateNodes(nodes);
+    }
+
+    // Improved Base64 detection:
     // If it doesn't contain common protocol prefixes and looks like Base64 (ignoring whitespace)
     bool isLikelyBase64(String str) {
       final clean = str.replaceAll(RegExp(r'[\s\r\n]+'), '');
       if (clean.isEmpty || clean.length < 8) return false;
-      
+
       // Must only contain Base64 characters
       if (!RegExp(r'^[A-Za-z0-9+/=]+$').hasMatch(clean)) return false;
-      
+
       // If it already contains protocol schemes at the start, it's a single node link, not a base64-wrapped sub
       final lower = str.toLowerCase();
-      if (lower.startsWith('vmess://') || lower.startsWith('vless://') || 
-          lower.startsWith('ss://') || lower.startsWith('trojan://') ||
-          lower.startsWith('hysteria2://') || lower.startsWith('tuic://')) {
+      if (lower.startsWith('vmess://') ||
+          lower.startsWith('vless://') ||
+          lower.startsWith('ss://') ||
+          lower.startsWith('trojan://') ||
+          lower.startsWith('hysteria2://') ||
+          lower.startsWith('tuic://')) {
         return false;
       }
-      
+
       return true;
     }
 
@@ -63,15 +104,18 @@ class LinkParser {
         // Robust Base64 Decoding Logic
         // 1. Remove all whitespace, newlines and tabs
         String toDecode = content.replaceAll(RegExp(r'[\s\r\n\t]+'), '');
-        
+
         // 2. Handle URL-Safe Base64
         toDecode = toDecode.replaceAll('-', '+').replaceAll('_', '/');
-        
+
         // 3. Auto-padding for length % 4
         int padLength = (4 - (toDecode.length % 4)) % 4;
         toDecode += '=' * padLength;
-        
-        final decoded = utf8.decode(base64.decode(toDecode), allowMalformed: true);
+
+        final decoded = utf8.decode(
+          base64.decode(toDecode),
+          allowMalformed: true,
+        );
         if (decoded.trim().isNotEmpty) {
           // Shadowrocket metadata filtering (STATUS=..., REMARKS=...)
           // Cleaning dirty data: split by line and skip non-protocol lines
@@ -80,13 +124,18 @@ class LinkParser {
             final l = line.trim();
             if (l.isEmpty) continue;
             // Skip common metadata headers
-            if (l.startsWith('STATUS=') || l.startsWith('REMARKS=') || l.startsWith('INTERVAL=')) continue;
+            if (l.startsWith('STATUS=') ||
+                l.startsWith('REMARKS=') ||
+                l.startsWith('INTERVAL='))
+              continue;
             filteredLines.add(l);
           }
           content = filteredLines.join('\n');
         }
       } catch (e) {
-        debugPrint('Base64 decode failed, original body starts with: ${content.substring(0, content.length > 100 ? 100 : content.length)}');
+        debugPrint(
+          'Base64 decode failed, original body starts with: ${content.substring(0, content.length > 100 ? 100 : content.length)}',
+        );
         debugPrint('Error: $e');
       }
     }
@@ -96,46 +145,47 @@ class LinkParser {
     for (var line in lines) {
       line = line.trim();
       if (line.isEmpty) continue;
-
-      // Handle SIP002 (Shadowsocks) SIP008 etc.
-      try {
-        if (line.startsWith('vmess://')) {
-          nodes.add(_parseVmess(line));
-        } else if (line.startsWith('vless://')) {
-          nodes.add(_parseVless(line));
-        } else if (line.startsWith('trojan://')) {
-          nodes.add(_parseTrojan(line));
-        } else if (line.startsWith('ss://')) {
-          nodes.add(_parseSS(line));
-        } else if (line.startsWith('socks5://') || line.startsWith('socks://')) {
-          nodes.add(_parseSocks(line));
-        } else if (line.startsWith('http://') || line.startsWith('https://')) {
-          // Could be a simple HTTP proxy or another subscription link (we only parse as proxy here)
-          nodes.add(_parseHttp(line));
-        } else if (line.startsWith('hysteria2://') || line.startsWith('hy2://')) {
-          nodes.add(_parseHysteria2(line));
-        } else if (line.startsWith('tuic://')) {
-          nodes.add(_parseTuic(line));
-        } else if (line.startsWith('wireguard://')) {
-          nodes.add(_parseWireGuard(line));
-        } else if (line.startsWith('dokodemo-door://')) {
-          nodes.add(_parseDokodemo(line));
-        } else if (line.startsWith('shadowrocket://')) {
-          // Shadowrocket internal format, often Base64 of a regular link
-          final innerLink = _decodeShadowrocketLink(line);
-          if (innerLink != null) {
-            // Recursively parse the inner link
-            final innerNodes = parse(innerLink);
-            nodes.addAll(innerNodes);
-          }
-        }
-      } catch (e) {
-        debugPrint('Failed to parse link: $line, error: $e');
-        // Continue to next line, don't break the whole list
-      }
+      _parseSingleUri(line, nodes);
     }
 
-    // Deduplicate nodes by ID (which is hash-based)
+    return _deduplicateNodes(nodes);
+  }
+
+  static void _parseSingleUri(String line, List<NodeModel> nodes) {
+    try {
+      if (line.startsWith('vmess://')) {
+        nodes.add(_parseVmess(line));
+      } else if (line.startsWith('vless://')) {
+        nodes.add(_parseVless(line));
+      } else if (line.startsWith('trojan://')) {
+        nodes.add(_parseTrojan(line));
+      } else if (line.startsWith('ss://')) {
+        nodes.add(_parseSS(line));
+      } else if (line.startsWith('socks5://') || line.startsWith('socks://')) {
+        nodes.add(_parseSocks(line));
+      } else if (line.startsWith('http://') || line.startsWith('https://')) {
+        nodes.add(_parseHttp(line));
+      } else if (line.startsWith('hysteria2://') || line.startsWith('hy2://')) {
+        nodes.add(_parseHysteria2(line));
+      } else if (line.startsWith('tuic://')) {
+        nodes.add(_parseTuic(line));
+      } else if (line.startsWith('wireguard://')) {
+        nodes.add(_parseWireGuard(line));
+      } else if (line.startsWith('dokodemo-door://')) {
+        nodes.add(_parseDokodemo(line));
+      } else if (line.startsWith('shadowrocket://')) {
+        final innerLink = _decodeShadowrocketLink(line);
+        if (innerLink != null) {
+          final innerNodes = parse(innerLink);
+          nodes.addAll(innerNodes);
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to parse link: $line, error: $e');
+    }
+  }
+
+  static List<NodeModel> _deduplicateNodes(List<NodeModel> nodes) {
     final seenIds = <String>{};
     return nodes.where((n) => seenIds.add(n.id)).toList();
   }
@@ -171,12 +221,19 @@ class LinkParser {
         normalizedBase64 += '=';
       }
 
-      final decoded = utf8.decode(base64.decode(normalizedBase64), allowMalformed: true);
-      
+      final decoded = utf8.decode(
+        base64.decode(normalizedBase64),
+        allowMalformed: true,
+      );
+
       // Check if it's JSON format (standard)
       if (decoded.trim().startsWith('{')) {
         final Map<String, dynamic> data = jsonDecode(decoded);
-        final name = data['ps']?.toString() ?? queryParams['remarks'] ?? queryParams['ps'] ?? 'VMess Node';
+        final name =
+            data['ps']?.toString() ??
+            queryParams['remarks'] ??
+            queryParams['ps'] ??
+            'VMess Node';
         final address = data['add']?.toString() ?? '';
         final port = int.tryParse(data['port']?.toString() ?? '443') ?? 443;
         final uuid = data['id']?.toString() ?? '';
@@ -204,14 +261,17 @@ class LinkParser {
         if (atParts.length == 2) {
           final userInfo = atParts[0].split(':');
           final serverInfo = atParts[1].split(':');
-          
+
           final encryption = userInfo[0];
           final uuid = userInfo.length > 1 ? userInfo[1] : '';
           final address = serverInfo[0];
-          final port = serverInfo.length > 1 ? (int.tryParse(serverInfo[1]) ?? 443) : 443;
-          
-          final name = queryParams['remarks'] ?? queryParams['ps'] ?? 'VMess Node';
-          
+          final port = serverInfo.length > 1
+              ? (int.tryParse(serverInfo[1]) ?? 443)
+              : 443;
+
+          final name =
+              queryParams['remarks'] ?? queryParams['ps'] ?? 'VMess Node';
+
           return NodeModel(
             id: _generateId('vmess', name, address, port, uuid),
             name: name,
@@ -231,7 +291,7 @@ class LinkParser {
     } catch (e) {
       debugPrint('VMess parse error: $e');
     }
-    
+
     // Fallback or empty result
     return NodeModel(
       id: 'error-${DateTime.now().millisecondsSinceEpoch}',
@@ -245,9 +305,9 @@ class LinkParser {
   static NodeModel _parseVless(String link) {
     final uri = Uri.parse(link);
     final query = uri.queryParameters;
-    final name = Uri.decodeComponent(uri.fragment).isNotEmpty 
-          ? Uri.decodeComponent(uri.fragment) 
-          : (query['remark'] ?? query['ps'] ?? 'VLESS Node');
+    final name = Uri.decodeComponent(uri.fragment).isNotEmpty
+        ? Uri.decodeComponent(uri.fragment)
+        : (query['remark'] ?? query['ps'] ?? 'VLESS Node');
 
     final net = query['type'] ?? 'tcp';
 
@@ -278,25 +338,48 @@ class LinkParser {
 
   static NodeModel _parseTrojan(String link) {
     final uri = Uri.parse(link);
-    final query = uri.queryParameters;
-    final name = Uri.decodeComponent(uri.fragment).isNotEmpty 
-          ? Uri.decodeComponent(uri.fragment) 
-          : (query['remark'] ?? query['ps'] ?? 'Trojan Node');
+    final Map<String, String> query = {};
+
+    // 1. 暴力切分 Query 参数 (Final Fix)
+    // 确保任何特殊字符和 Emoji 都能被安全消化
+    if (uri.query.isNotEmpty) {
+      for (var part in uri.query.split('&')) {
+        final kv = part.split('=');
+        if (kv.length == 2) {
+          query[kv[0]] = Uri.decodeComponent(kv[1]);
+        }
+      }
+    }
+
+    final name = Uri.decodeComponent(uri.fragment).isNotEmpty
+        ? Uri.decodeComponent(uri.fragment)
+        : (query['remark'] ?? query['ps'] ?? 'Trojan Node');
 
     final net = query['type'] ?? 'tcp';
 
+    // 2. 物理还原密码 (userInfo) (Final Fix)
+    // Trojan 协议里，password 就是 userInfo，必须解密
+    final password = Uri.decodeComponent(uri.userInfo);
+
+    // 3. 彻底清洗 Path，强制剔除 Emoji 等非法字符 (Final Fix)
+    String? path = query['path'];
+    if (path != null) {
+      path = path.replaceAll(RegExp(r'[^\x00-\x7F]'), '');
+    }
+
     return NodeModel(
-      id: _generateId('trojan', name, uri.host, uri.port, uri.userInfo),
+      id: _generateId('trojan', name, uri.host, uri.port, password),
       name: name,
       protocol: 'trojan',
       address: uri.host,
       port: uri.port,
-      password: uri.userInfo,
+      password: password,
       network: net,
       security: query['security'] ?? 'tls',
       sni: query['sni'] ?? query['peer'],
-      host: query['host'],
-      path: query['path'],
+      // [Fix] Host 回退逻辑：强制对齐 SNI 防止 CDN 握手失败
+      host: query['host'] ?? query['sni'] ?? query['peer'],
+      path: path,
       type: query['headerType'] ?? 'none',
       rawData: query,
     );
@@ -415,9 +498,9 @@ class LinkParser {
     }
 
     final query = uri.queryParameters;
-    final name = Uri.decodeComponent(uri.fragment).isNotEmpty 
-          ? Uri.decodeComponent(uri.fragment) 
-          : (query['remark'] ?? query['ps'] ?? 'SOCKS5 Node');
+    final name = Uri.decodeComponent(uri.fragment).isNotEmpty
+        ? Uri.decodeComponent(uri.fragment)
+        : (query['remark'] ?? query['ps'] ?? 'SOCKS5 Node');
 
     return NodeModel(
       id: _generateId('socks', name, uri.host, uri.port, uri.userInfo),
@@ -428,7 +511,9 @@ class LinkParser {
       username: username,
       password: password,
       rawData: query,
-      security: query['tls'] == '1' || query['security'] == 'tls' ? 'tls' : 'none',
+      security: query['tls'] == '1' || query['security'] == 'tls'
+          ? 'tls'
+          : 'none',
     );
   }
 
@@ -446,9 +531,9 @@ class LinkParser {
     }
 
     final query = uri.queryParameters;
-    final name = Uri.decodeComponent(uri.fragment).isNotEmpty 
-          ? Uri.decodeComponent(uri.fragment) 
-          : (query['remark'] ?? query['ps'] ?? 'HTTP Node');
+    final name = Uri.decodeComponent(uri.fragment).isNotEmpty
+        ? Uri.decodeComponent(uri.fragment)
+        : (query['remark'] ?? query['ps'] ?? 'HTTP Node');
 
     return NodeModel(
       id: _generateId('http', name, uri.host, uri.port, uri.userInfo),
@@ -459,16 +544,18 @@ class LinkParser {
       username: username,
       password: password,
       rawData: query,
-      security: query['tls'] == '1' || query['security'] == 'tls' ? 'tls' : 'none',
+      security: query['tls'] == '1' || query['security'] == 'tls'
+          ? 'tls'
+          : 'none',
     );
   }
 
   static NodeModel _parseHysteria2(String link) {
     final uri = Uri.parse(link);
     final query = uri.queryParameters;
-    final name = Uri.decodeComponent(uri.fragment).isNotEmpty 
-          ? Uri.decodeComponent(uri.fragment) 
-          : (query['remark'] ?? query['ps'] ?? 'Hysteria2 Node');
+    final name = Uri.decodeComponent(uri.fragment).isNotEmpty
+        ? Uri.decodeComponent(uri.fragment)
+        : (query['remark'] ?? query['ps'] ?? 'Hysteria2 Node');
 
     return NodeModel(
       id: _generateId('hy2', name, uri.host, uri.port, uri.userInfo),
@@ -488,7 +575,7 @@ class LinkParser {
   static NodeModel _parseTuic(String link) {
     final uri = Uri.parse(link);
     final query = uri.queryParameters;
-    
+
     String uuid = '';
     String password = '';
     if (uri.userInfo.contains(':')) {
@@ -499,9 +586,9 @@ class LinkParser {
       uuid = uri.userInfo;
     }
 
-    final name = Uri.decodeComponent(uri.fragment).isNotEmpty 
-          ? Uri.decodeComponent(uri.fragment) 
-          : (query['remark'] ?? query['ps'] ?? 'TUIC Node');
+    final name = Uri.decodeComponent(uri.fragment).isNotEmpty
+        ? Uri.decodeComponent(uri.fragment)
+        : (query['remark'] ?? query['ps'] ?? 'TUIC Node');
 
     return NodeModel(
       id: _generateId('tuic', name, uri.host, uri.port, uri.userInfo),
@@ -513,7 +600,7 @@ class LinkParser {
       password: password,
       sni: query['sni'],
       network: query['alpn'],
-      type: (query['insecure'] == '1' || query['allowInsecure'] == '1') ? 'insecure' : null,
+      type: query['insecure'] == '1' ? 'insecure' : null,
       rawData: query,
     );
   }
@@ -521,9 +608,9 @@ class LinkParser {
   static NodeModel _parseWireGuard(String link) {
     final uri = Uri.parse(link);
     final query = uri.queryParameters;
-    final name = Uri.decodeComponent(uri.fragment).isNotEmpty 
-          ? Uri.decodeComponent(uri.fragment) 
-          : (query['remark'] ?? query['ps'] ?? 'WireGuard Node');
+    final name = Uri.decodeComponent(uri.fragment).isNotEmpty
+        ? Uri.decodeComponent(uri.fragment)
+        : (query['remark'] ?? query['ps'] ?? 'WireGuard Node');
 
     return NodeModel(
       id: _generateId('wg', name, uri.host, uri.port, uri.userInfo),
@@ -544,9 +631,9 @@ class LinkParser {
   static NodeModel _parseDokodemo(String link) {
     final uri = Uri.parse(link);
     final query = uri.queryParameters;
-    final name = Uri.decodeComponent(uri.fragment).isNotEmpty 
-          ? Uri.decodeComponent(uri.fragment) 
-          : (query['remark'] ?? query['ps'] ?? 'Dokodemo Node');
+    final name = Uri.decodeComponent(uri.fragment).isNotEmpty
+        ? Uri.decodeComponent(uri.fragment)
+        : (query['remark'] ?? query['ps'] ?? 'Dokodemo Node');
 
     return NodeModel(
       id: _generateId('dokodemo', name, uri.host, uri.port),
@@ -563,20 +650,26 @@ class LinkParser {
     final List<NodeModel> nodes = [];
     try {
       // 1. Try to find the 'proxies:' section
-      final proxiesMatch = RegExp(r'^proxies:\s*$', multiLine: true).firstMatch(yamlText);
+      final proxiesMatch = RegExp(
+        r'^proxies:\s*$',
+        multiLine: true,
+      ).firstMatch(yamlText);
       if (proxiesMatch != null) {
         final proxiesContent = yamlText.substring(proxiesMatch.end);
         // Find where the next top-level key starts (indented by 0 spaces)
-        final nextKeyMatch = RegExp(r'^\S', multiLine: true).firstMatch(proxiesContent);
-        final section = nextKeyMatch != null 
-            ? proxiesContent.substring(0, nextKeyMatch.start) 
+        final nextKeyMatch = RegExp(
+          r'^\S',
+          multiLine: true,
+        ).firstMatch(proxiesContent);
+        final section = nextKeyMatch != null
+            ? proxiesContent.substring(0, nextKeyMatch.start)
             : proxiesContent;
-            
+
         // Split by '-' at the start of lines to get individual proxy blocks
         final blocks = section.split(RegExp(r'^\s*-\s*', multiLine: true));
         for (final block in blocks) {
           if (block.trim().isEmpty) continue;
-          
+
           if (block.trim().startsWith('{')) {
             // Handle inline style: - { name: ..., type: ... }
             final inlineNodes = _parseClashInline('- $block');
@@ -611,13 +704,13 @@ class LinkParser {
     for (var match in matches) {
       final content = match.group(1) ?? '';
       final Map<String, dynamic> data = {};
-      
+
       int braceDepth = 0;
       bool inQuotes = false;
       String currentKey = '';
       String currentValue = '';
       bool parsingValue = false;
-      
+
       for (int i = 0; i < content.length; i++) {
         final char = content[i];
         if (char == '"' || char == "'") {
@@ -626,22 +719,34 @@ class LinkParser {
           parsingValue = true;
         } else if (!inQuotes && char == ',') {
           if (currentKey.isNotEmpty) {
-            data[currentKey.trim().replaceAll(RegExp(r"^['" + '"' + r"]|['" + '"' + r"]$"), '')] = 
-              currentValue.trim().replaceAll(RegExp(r"^['" + '"' + r"]|['" + '"' + r"]$"), '');
+            data[currentKey.trim().replaceAll(
+              RegExp(r"^['" + '"' + r"]|['" + '"' + r"]$"),
+              '',
+            )] = currentValue.trim().replaceAll(
+              RegExp(r"^['" + '"' + r"]|['" + '"' + r"]$"),
+              '',
+            );
           }
           currentKey = '';
           currentValue = '';
           parsingValue = false;
         } else {
-          if (parsingValue) currentValue += char;
-          else currentKey += char;
+          if (parsingValue)
+            currentValue += char;
+          else
+            currentKey += char;
         }
       }
       if (currentKey.isNotEmpty) {
-        data[currentKey.trim().replaceAll(RegExp(r"^['" + '"' + r"]|['" + '"' + r"]$"), '')] = 
-          currentValue.trim().replaceAll(RegExp(r"^['" + '"' + r"]|['" + '"' + r"]$"), '');
+        data[currentKey.trim().replaceAll(
+          RegExp(r"^['" + '"' + r"]|['" + '"' + r"]$"),
+          '',
+        )] = currentValue.trim().replaceAll(
+          RegExp(r"^['" + '"' + r"]|['" + '"' + r"]$"),
+          '',
+        );
       }
-      
+
       _addNodeFromData(data, nodes);
     }
     return nodes;
@@ -655,10 +760,16 @@ class LinkParser {
         final cleanLine = line.trim().replaceFirst(RegExp(r'^-?\s*'), '');
         final kv = cleanLine.split(':');
         if (kv.length >= 2) {
-          final key = kv[0].trim().replaceAll(RegExp(r"^['" + '"' + r"]|['" + '"' + r"]$"), '');
+          final key = kv[0].trim().replaceAll(
+            RegExp(r"^['" + '"' + r"]|['" + '"' + r"]$"),
+            '',
+          );
           var value = kv.sublist(1).join(':').trim();
           value = value.split('#')[0].trim();
-          value = value.replaceAll(RegExp(r"^['" + '"' + r"]|['" + '"' + r"]$"), '');
+          value = value.replaceAll(
+            RegExp(r"^['" + '"' + r"]|['" + '"' + r"]$"),
+            '',
+          );
           data[key] = value;
         }
       }
@@ -670,7 +781,7 @@ class LinkParser {
 
   static String _decodeYamlString(String input) {
     if (input.isEmpty) return input;
-    
+
     String result = input;
     // Handle Unicode escapes like \u4e2d\u56fd
     result = result.replaceAllMapped(RegExp(r'\\u([0-9a-fA-F]{4})'), (match) {
@@ -678,20 +789,23 @@ class LinkParser {
       final code = int.parse(hex, radix: 16);
       return String.fromCharCode(code);
     });
-    
+
     // Handle other common escapes
     result = result
-      .replaceAll(r'\\', r'\')
-      .replaceAll(r'\"', '"')
-      .replaceAll(r"\'", "'")
-      .replaceAll(r'\n', '\n')
-      .replaceAll(r'\r', '\r')
-      .replaceAll(r'\t', '\t');
-      
+        .replaceAll(r'\\', r'\')
+        .replaceAll(r'\"', '"')
+        .replaceAll(r"\'", "'")
+        .replaceAll(r'\n', '\n')
+        .replaceAll(r'\r', '\r')
+        .replaceAll(r'\t', '\t');
+
     return result;
   }
 
-  static void _addNodeFromData(Map<String, dynamic> data, List<NodeModel> nodes) {
+  static void _addNodeFromData(
+    Map<String, dynamic> data,
+    List<NodeModel> nodes,
+  ) {
     final type = data['type']?.toString().toLowerCase() ?? '';
     final name = _decodeYamlString(data['name']?.toString() ?? 'Clash Node');
     final server = data['server']?.toString() ?? '';
@@ -701,145 +815,191 @@ class LinkParser {
 
     if (type == 'vmess') {
       final net = data['network']?.toString() ?? 'tcp';
-      String headerType = data['obfs']?.toString() ?? data['type']?.toString() ?? 'none';
+      String headerType =
+          data['obfs']?.toString() ?? data['type']?.toString() ?? 'none';
       if (net == 'kcp' || net == 'mkcp') {
-        headerType = data['header']?.toString() ?? data['type']?.toString() ?? 'none';
+        headerType =
+            data['header']?.toString() ?? data['type']?.toString() ?? 'none';
       }
 
-      nodes.add(NodeModel(
-        id: _generateId('clash-vmess', name, server, port, data['uuid']?.toString()),
-        name: name,
-        protocol: 'vmess',
-        address: server,
-        port: port,
-        uuid: data['uuid']?.toString(),
-        network: net,
-        type: headerType,
-        path: data['ws-path']?.toString() ?? data['path']?.toString() ?? data['seed']?.toString(),
-        host: data['ws-headers']?.toString() ?? data['host']?.toString(),
-        security: (data['tls']?.toString() == 'true') ? 'tls' : 'none',
-        sni: data['sni']?.toString(),
-        rawData: data,
-      ));
+      nodes.add(
+        NodeModel(
+          id: _generateId(
+            'clash-vmess',
+            name,
+            server,
+            port,
+            data['uuid']?.toString(),
+          ),
+          name: name,
+          protocol: 'vmess',
+          address: server,
+          port: port,
+          uuid: data['uuid']?.toString(),
+          network: net,
+          type: headerType,
+          path:
+              data['ws-path']?.toString() ??
+              data['path']?.toString() ??
+              data['seed']?.toString(),
+          host: data['ws-headers']?.toString() ?? data['host']?.toString(),
+          security: (data['tls']?.toString() == 'true') ? 'tls' : 'none',
+          sni: data['sni']?.toString(),
+          rawData: data,
+        ),
+      );
     } else if (type == 'vless') {
       final net = data['network']?.toString() ?? 'tcp';
-      String headerType = data['obfs']?.toString() ?? data['type']?.toString() ?? 'none';
+      String headerType =
+          data['obfs']?.toString() ?? data['type']?.toString() ?? 'none';
       if (net == 'kcp' || net == 'mkcp') {
-        headerType = data['header']?.toString() ?? data['type']?.toString() ?? 'none';
+        headerType =
+            data['header']?.toString() ?? data['type']?.toString() ?? 'none';
       }
 
-      nodes.add(NodeModel(
-        id: _generateId('clash-vless', name, server, port, data['uuid']?.toString()),
-        name: name,
-        protocol: 'vless',
-        address: server,
-        port: port,
-        uuid: data['uuid']?.toString(),
-        network: net,
-        type: headerType,
-        path: data['ws-path']?.toString() ?? data['path']?.toString() ?? data['seed']?.toString(),
-        security: (data['tls']?.toString() == 'true') ? 'tls' : 'none',
-        flow: data['flow']?.toString(),
-        publicKey: data['reality-public-key']?.toString(),
-        shortId: data['reality-short-id']?.toString(),
-        sni: data['sni']?.toString(),
-        rawData: data,
-      ));
+      nodes.add(
+        NodeModel(
+          id: _generateId(
+            'clash-vless',
+            name,
+            server,
+            port,
+            data['uuid']?.toString(),
+          ),
+          name: name,
+          protocol: 'vless',
+          address: server,
+          port: port,
+          uuid: data['uuid']?.toString(),
+          network: net,
+          type: headerType,
+          path:
+              data['ws-path']?.toString() ??
+              data['path']?.toString() ??
+              data['seed']?.toString(),
+          security: (data['tls']?.toString() == 'true') ? 'tls' : 'none',
+          flow: data['flow']?.toString(),
+          publicKey: data['reality-public-key']?.toString(),
+          shortId: data['reality-short-id']?.toString(),
+          sni: data['sni']?.toString(),
+          rawData: data,
+        ),
+      );
     } else if (type == 'trojan') {
       final net = data['network']?.toString() ?? 'tcp';
-      String headerType = data['obfs']?.toString() ?? data['type']?.toString() ?? 'none';
+      String headerType =
+          data['obfs']?.toString() ?? data['type']?.toString() ?? 'none';
       if (net == 'kcp' || net == 'mkcp') {
-        headerType = data['header']?.toString() ?? data['type']?.toString() ?? 'none';
+        headerType =
+            data['header']?.toString() ?? data['type']?.toString() ?? 'none';
       }
 
-      nodes.add(NodeModel(
-        id: _generateId('clash-trojan', name, server, port),
-        name: name,
-        protocol: 'trojan',
-        address: server,
-        port: port,
-        password: data['password']?.toString(),
-        sni: data['sni']?.toString(),
-        security: 'tls',
-        network: net,
-        type: headerType,
-        path: data['ws-path']?.toString() ?? data['path']?.toString() ?? data['seed']?.toString(),
-        rawData: data,
-      ));
+      nodes.add(
+        NodeModel(
+          id: _generateId('clash-trojan', name, server, port),
+          name: name,
+          protocol: 'trojan',
+          address: server,
+          port: port,
+          password: data['password']?.toString(),
+          sni: data['sni']?.toString(),
+          security: 'tls',
+          network: net,
+          type: headerType,
+          path:
+              data['ws-path']?.toString() ??
+              data['path']?.toString() ??
+              data['seed']?.toString(),
+          rawData: data,
+        ),
+      );
     } else if (type == 'ss' || type == 'shadowsocks') {
-      nodes.add(NodeModel(
-        id: _generateId('clash-ss', name, server, port),
-        name: name,
-        protocol: 'shadowsocks',
-        address: server,
-        port: port,
-        method: data['cipher']?.toString(),
-        password: data['password']?.toString(),
-        network: data['network']?.toString() ?? 'tcp',
-        path: data['ws-path']?.toString() ?? data['path']?.toString(),
-        host: data['ws-headers']?.toString() ?? data['host']?.toString(),
-        rawData: data,
-      ));
+      nodes.add(
+        NodeModel(
+          id: _generateId('clash-ss', name, server, port),
+          name: name,
+          protocol: 'shadowsocks',
+          address: server,
+          port: port,
+          method: data['cipher']?.toString(),
+          password: data['password']?.toString(),
+          network: data['network']?.toString() ?? 'tcp',
+          path: data['ws-path']?.toString() ?? data['path']?.toString(),
+          host: data['ws-headers']?.toString() ?? data['host']?.toString(),
+          rawData: data,
+        ),
+      );
     } else if (type == 'wireguard') {
-      nodes.add(NodeModel(
-        id: _generateId('clash-wg', name, server, port),
-        name: name,
-        protocol: 'wireguard',
-        address: server,
-        port: port,
-        wgSecretKey: data['private-key']?.toString(),
-        wgPeerPublicKey: data['public-key']?.toString(),
-        wgPreSharedKey: data['preshared-key']?.toString(),
-        wgLocalAddress: data['ip']?.toString() != null ? [data['ip']!.toString()] : null,
-        wgMtu: int.tryParse(data['mtu']?.toString() ?? ''),
-        wgKeepAlive: int.tryParse(data['udp']?.toString() ?? ''),
-        rawData: data,
-      ));
+      nodes.add(
+        NodeModel(
+          id: _generateId('clash-wg', name, server, port),
+          name: name,
+          protocol: 'wireguard',
+          address: server,
+          port: port,
+          wgSecretKey: data['private-key']?.toString(),
+          wgPeerPublicKey: data['public-key']?.toString(),
+          wgPreSharedKey: data['preshared-key']?.toString(),
+          wgLocalAddress: data['ip']?.toString() != null
+              ? [data['ip']!.toString()]
+              : null,
+          wgMtu: int.tryParse(data['mtu']?.toString() ?? ''),
+          wgKeepAlive: int.tryParse(data['udp']?.toString() ?? ''),
+          rawData: data,
+        ),
+      );
     } else if (type == 'hysteria2' || type == 'hy2') {
-      nodes.add(NodeModel(
-        id: _generateId('clash-hy2', name, server, port),
-        name: name,
-        protocol: 'hysteria2',
-        address: server,
-        port: port,
-        password: data['auth-str']?.toString() ?? data['password']?.toString(),
-        sni: data['sni']?.toString(),
-        host: data['host']?.toString(),
-        type: data['insecure']?.toString() == 'true' ? 'insecure' : null,
-        rawData: data,
-      ));
+      nodes.add(
+        NodeModel(
+          id: _generateId('clash-hy2', name, server, port),
+          name: name,
+          protocol: 'hysteria2',
+          address: server,
+          port: port,
+          password:
+              data['auth-str']?.toString() ?? data['password']?.toString(),
+          sni: data['sni']?.toString(),
+          host: data['host']?.toString(),
+          type: data['insecure']?.toString() == 'true' ? 'insecure' : null,
+          rawData: data,
+        ),
+      );
     } else if (type == 'tuic') {
-      nodes.add(NodeModel(
-        id: _generateId('clash-tuic', name, server, port),
-        name: name,
-        protocol: 'tuic',
-        address: server,
-        port: port,
-        uuid: data['uuid']?.toString(),
-        password: data['password']?.toString(),
-        sni: data['sni']?.toString(),
-        network: data['alpn']?.toString(),
-        rawData: data,
-      ));
+      nodes.add(
+        NodeModel(
+          id: _generateId('clash-tuic', name, server, port),
+          name: name,
+          protocol: 'tuic',
+          address: server,
+          port: port,
+          uuid: data['uuid']?.toString(),
+          password: data['password']?.toString(),
+          sni: data['sni']?.toString(),
+          network: data['alpn']?.toString(),
+          rawData: data,
+        ),
+      );
     }
   }
 
   static List<NodeModel> _parseXrayJson(Map<String, dynamic> data) {
     final List<NodeModel> nodes = [];
     try {
-      final List<dynamic> outbounds = data.containsKey('outbounds') 
-          ? data['outbounds'] 
+      final List<dynamic> outbounds = data.containsKey('outbounds')
+          ? data['outbounds']
           : [data];
 
       for (var outbound in outbounds) {
         if (outbound is! Map<String, dynamic>) continue;
-        
+
         final protocol = outbound['protocol']?.toString().toLowerCase();
-        if (protocol == null || protocol == 'direct' || protocol == 'block') continue;
+        if (protocol == null || protocol == 'direct' || protocol == 'block')
+          continue;
 
         final settings = outbound['settings'] as Map<String, dynamic>?;
-        final streamSettings = outbound['streamSettings'] as Map<String, dynamic>?;
-        
+        final streamSettings =
+            outbound['streamSettings'] as Map<String, dynamic>?;
+
         String address = '';
         int port = 0;
         String? uuid;
@@ -857,17 +1017,26 @@ class LinkParser {
             if (users != null && users.isNotEmpty) {
               final user = users[0] as Map<String, dynamic>;
               uuid = user['id']?.toString();
-              encryption = user['security']?.toString() ?? user['encryption']?.toString();
+              encryption =
+                  user['security']?.toString() ??
+                  user['encryption']?.toString();
             }
           }
-        } else if (protocol == 'trojan' || protocol == 'shadowsocks' || protocol == 'ss' || protocol == 'socks' || protocol == 'http' || protocol == 'hysteria2' || protocol == 'tuic') {
+        } else if (protocol == 'trojan' ||
+            protocol == 'shadowsocks' ||
+            protocol == 'ss' ||
+            protocol == 'socks' ||
+            protocol == 'http' ||
+            protocol == 'hysteria2' ||
+            protocol == 'tuic') {
           final servers = settings?['servers'] as List<dynamic>?;
           if (servers != null && servers.isNotEmpty) {
             final server = servers[0] as Map<String, dynamic>;
             address = server['address']?.toString() ?? '';
             port = int.tryParse(server['port']?.toString() ?? '') ?? 0;
             password = server['password']?.toString();
-            username = server['user']?.toString() ?? server['username']?.toString();
+            username =
+                server['user']?.toString() ?? server['username']?.toString();
             uuid = server['uuid']?.toString();
           }
         }
@@ -876,7 +1045,7 @@ class LinkParser {
 
         final network = streamSettings?['network']?.toString() ?? 'tcp';
         final security = streamSettings?['security']?.toString() ?? 'none';
-        
+
         String? host;
         String? path;
         String? type;
@@ -893,7 +1062,8 @@ class LinkParser {
           final kcp = streamSettings?['kcpSettings'] as Map<String, dynamic>?;
           path = kcp?['path']?.toString() ?? kcp?['seed']?.toString();
           type = kcp?['header']?['type']?.toString();
-          final finalmask = streamSettings?['finalmask'] as Map<String, dynamic>?;
+          final finalmask =
+              streamSettings?['finalmask'] as Map<String, dynamic>?;
           if (finalmask != null && finalmask.containsKey('udp')) {
             final udp = finalmask['udp'];
             if (udp is List && udp.isNotEmpty) {
@@ -921,30 +1091,33 @@ class LinkParser {
           final tls = streamSettings?['tlsSettings'] as Map<String, dynamic>?;
           sni = tls?['serverName']?.toString();
         } else if (security == 'reality') {
-          final reality = streamSettings?['realitySettings'] as Map<String, dynamic>?;
+          final reality =
+              streamSettings?['realitySettings'] as Map<String, dynamic>?;
           sni = reality?['serverName']?.toString();
         }
 
         final name = outbound['tag']?.toString() ?? '$protocol-$address';
 
-        nodes.add(NodeModel(
-          id: _generateId(protocol, name, address, port, uuid ?? password),
-          name: name,
-          protocol: protocol,
-          address: address,
-          port: port,
-          uuid: uuid,
-          password: password,
-          username: username,
-          network: network,
-          security: security,
-          path: path,
-          host: host,
-          type: type,
-          sni: sni,
-          encryption: encryption,
-          rawData: outbound,
-        ));
+        nodes.add(
+          NodeModel(
+            id: _generateId(protocol, name, address, port, uuid ?? password),
+            name: name,
+            protocol: protocol,
+            address: address,
+            port: port,
+            uuid: uuid,
+            password: password,
+            username: username,
+            network: network,
+            security: security,
+            path: path,
+            host: host,
+            type: type,
+            sni: sni,
+            encryption: encryption,
+            rawData: outbound,
+          ),
+        );
       }
     } catch (e) {
       print('Error parsing Xray JSON: $e');

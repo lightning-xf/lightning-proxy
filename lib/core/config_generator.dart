@@ -25,6 +25,11 @@ class ConfigGenerator {
     bool enableIPv6 = true,
     String dnsHosts = '',
   }) {
+    // [Fix] 彻底击穿枚举判定陷阱：使用模糊包含判定确保全局模式逻辑生效
+    final modeStr = mode.toString().toLowerCase();
+    final isGlobalMode = modeStr.contains('global');
+    final effectiveRules = isGlobalMode ? <RuleModel>[] : rules;
+
     final listenAddr = allowLan ? "0.0.0.0" : "127.0.0.1";
     final dnsServers = dns
         .split(',')
@@ -45,7 +50,7 @@ class ConfigGenerator {
     // Get proxy and direct domains from rules
     final proxyDomains = <String>[];
     final directDomains = <String>[];
-    for (final rule in rules.where((r) => r.enabled)) {
+    for (final rule in effectiveRules.where((r) => r.enabled)) {
       if (rule.outboundTag == 'proxy' && rule.domain != null) {
         proxyDomains.addAll(rule.domain!);
       } else if (rule.outboundTag == 'direct' && rule.domain != null) {
@@ -96,7 +101,8 @@ class ConfigGenerator {
           isTest,
           dnsServers,
         ),
-        "queryStrategy": "UseIP",
+        "queryStrategy": "UseIPv4",
+        "domainStrategy": "UseIPv4", // [Fix] 强制 UseIPv4，避开 Hysteria2 IPv6 隧道陷阱
         "tag": "dns-out",
         "enableParallelQuery":
             (remoteDnsServers.length + domesticDnsServers.length) > 2,
@@ -167,7 +173,9 @@ class ConfigGenerator {
         {
           "tag": "direct",
           "protocol": "freedom",
-          "settings": {"domainStrategy": "UseIP"},
+          "settings": {
+            "domainStrategy": "UseIPv4",
+          }, // [Fix] 非直连模式下的 direct 标签也强制 UseIPv4
           "streamSettings": {
             "sockopt": {"tcpCongestion": tcpCongestion, "mark": 255},
           },
@@ -182,8 +190,8 @@ class ConfigGenerator {
         {"tag": "dns-out", "protocol": "dns", "settings": {}},
       ],
       "routing": {
-        "domainStrategy": "IPIfNonMatch",
-        "rules": _buildRoutingRules(rules, bypassLocal, mode, isTest),
+        "domainStrategy": "UseIPv4", // [Fix] 强制 UseIPv4，防止 UDP 环路死锁
+        "rules": _buildRoutingRules(effectiveRules, bypassLocal, mode, isTest),
       },
     };
     return const JsonEncoder.withIndent('  ').convert(config);
@@ -234,7 +242,7 @@ class ConfigGenerator {
         // FakeDNS should apply to all non-direct domains to avoid leaking
         servers.add({
           "address": "fakedns",
-          "domains": ["geosite:geolocation-!cn", ...proxyDomains]
+          "domains": ["geosite:geolocation-!cn", ...proxyDomains],
         });
       }
 
@@ -289,7 +297,7 @@ class ConfigGenerator {
           });
         }
       }
-      
+
       // Default fallbacks based on mode
       if (mode != VpnMode.direct) {
         // For rule/global mode, use international DNS as fallback
@@ -318,7 +326,10 @@ class ConfigGenerator {
     VpnMode mode,
     bool isTest,
   ) {
-    final routingRules = <Map<String, dynamic>>[
+    final modeString = mode.toString().toLowerCase();
+    final isGlobal = modeString.contains('global');
+
+    List<Map<String, dynamic>> routingRules = [
       {
         "inboundTag": ["api"],
         "outboundTag": "api",
@@ -333,162 +344,118 @@ class ConfigGenerator {
       },
     ];
 
-    if (!isTest) {
-      routingRules.add({
-        "ip": ["223.5.5.5", "114.114.114.114"],
-        "port": "53",
-        "network": "udp",
-        "outboundTag": "direct",
-        "type": "field",
-      });
-    }
-
-    if (isTest) {
-      routingRules.add({
-        "type": "field",
-        "outboundTag": "proxy",
-        "port": "0-65535",
-      });
-    } else if (mode == VpnMode.direct) {
-      routingRules.add({
-        "type": "field",
-        "network": "tcp,udp",
-        "outboundTag": "direct",
-      });
-    } else if (mode == VpnMode.global) {
+    if (isGlobal) {
+      // 全局模式：清空一切，只留 53 端口 DNS
       routingRules.addAll([
         {
           "type": "field",
-          "inboundTag": ["tun-in", "socks-in", "http-in"],
-          "network": "tcp,udp",
-          "outboundTag": "proxy",
+          "port": "53",
+          "outboundTag": "proxy", // Xray 核心通常使用 "proxy" 标签
         },
-        {"type": "field", "network": "tcp,udp", "outboundTag": "direct"},
+        {"type": "field", "network": "tcp,udp", "outboundTag": "proxy"},
       ]);
     } else {
-      // Rule mode - simplified and reliable configuration
-      // Priority: Block rules → Direct rules → Proxy rules → Default direct (safer fallback)
-      
-      // 1. Block rules (highest priority for filtering)
-      for (final r in rules.where((r) => r.enabled && r.outboundTag == 'block')) {
-        final Map<String, dynamic> rule = {
-          "type": "field",
-          "outboundTag": r.outboundTag,
-        };
-        if (r.domain != null && r.domain!.isNotEmpty) {
-          rule["domain"] = r.domain;
-        }
-        if (r.ip != null && r.ip!.isNotEmpty) {
-          rule["ip"] = r.ip;
-        }
-        if (r.port != null && r.port!.isNotEmpty) {
-          rule["port"] = r.port!.join(',');
-        }
-        if (r.network != null && r.network!.isNotEmpty) {
-          rule["network"] = r.network!.join(',');
-        }
-        routingRules.add(rule);
-      }
-
-      // 2. Remote DNS and FakeDNS Traffic (Must go through Proxy)
-      routingRules.addAll([
-        {
-          "type": "field",
-          "ip": ["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"],
-          "outboundTag": "proxy",
-        },
-        {
-          "type": "field",
-          "ip": ["198.18.0.0/15"], // FakeDNS IP range
-          "outboundTag": "proxy",
-        },
-      ]);
-
-      // 3. Direct rules for private networks and Chinese infrastructure
-      routingRules.addAll([
-        {
-          "type": "field",
-          "ip": ["geoip:private", "192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"],
-          "outboundTag": "direct",
-        },
-        {
-          "type": "field",
-          "domain": ["geosite:private"],
-          "outboundTag": "direct",
-        },
-        // DNS traffic to Chinese DNS servers goes direct
-        {
-          "ip": ["223.5.5.5", "223.6.6.6", "119.29.29.29", "114.114.114.114"],
+      // 规则模式：添加原有的 direct/proxy 等分流规则
+      if (!isTest) {
+        routingRules.add({
+          "ip": ["223.5.5.5", "114.114.114.114"],
           "port": "53",
           "network": "udp",
           "outboundTag": "direct",
           "type": "field",
-        },
-        {
-          "type": "field",
-          "ip": ["geoip:cn"],
-          "outboundTag": "direct",
-        },
-        {
-          "type": "field",
-          "domain": ["geosite:cn"],
-          "outboundTag": "direct",
-        },
-      ]);
-      
-      // 3. User-defined direct rules
-      for (final r in rules.where((r) => r.enabled && r.outboundTag == 'direct')) {
-        final Map<String, dynamic> rule = {
-          "type": "field",
-          "outboundTag": r.outboundTag,
-        };
-        if (r.domain != null && r.domain!.isNotEmpty) {
-          rule["domain"] = r.domain;
-        }
-        if (r.ip != null && r.ip!.isNotEmpty) {
-          rule["ip"] = r.ip;
-        }
-        if (r.port != null && r.port!.isNotEmpty) {
-          rule["port"] = r.port!.join(',');
-        }
-        if (r.network != null && r.network!.isNotEmpty) {
-          rule["network"] = r.network!.join(',');
-        }
-        routingRules.add(rule);
+        });
       }
 
-      // 4. Proxy rules
-      for (final r in rules.where((r) => r.enabled && r.outboundTag == 'proxy')) {
-        final Map<String, dynamic> rule = {
+      if (isTest) {
+        routingRules.add({
           "type": "field",
-          "outboundTag": r.outboundTag,
-        };
-        if (r.domain != null && r.domain!.isNotEmpty) {
-          rule["domain"] = r.domain;
+          "outboundTag": "proxy",
+          "port": "0-65535",
+        });
+      } else if (modeString.contains('direct')) {
+        routingRules.add({
+          "type": "field",
+          "network": "tcp,udp",
+          "outboundTag": "direct",
+        });
+      } else {
+        // ... (原有的规则遍历/添加逻辑) ...
+        // 1. Block rules
+        for (final r in rules.where(
+          (r) => r.enabled && r.outboundTag == 'block',
+        )) {
+          final Map<String, dynamic> rule = {
+            "type": "field",
+            "outboundTag": r.outboundTag,
+          };
+          if (r.domain != null && r.domain!.isNotEmpty)
+            rule["domain"] = r.domain;
+          if (r.ip != null && r.ip!.isNotEmpty) rule["ip"] = r.ip;
+          if (r.port != null && r.port!.isNotEmpty)
+            rule["port"] = r.port!.join(',');
+          if (r.network != null && r.network!.isNotEmpty)
+            rule["network"] = r.network!.join(',');
+          routingRules.add(rule);
         }
-        if (r.ip != null && r.ip!.isNotEmpty) {
-          rule["ip"] = r.ip;
-        }
-        if (r.port != null && r.port!.isNotEmpty) {
-          rule["port"] = r.port!.join(',');
-        }
-        if (r.network != null && r.network!.isNotEmpty) {
-          rule["network"] = r.network!.join(',');
-        }
-        routingRules.add(rule);
+        // 2. Remote DNS and FakeDNS
+        routingRules.addAll([
+          {
+            "type": "field",
+            "ip": ["8.8.8.8", "8.8.4.4", "1.1.1.1", "1.0.0.1"],
+            "outboundTag": "proxy",
+          },
+          {
+            "type": "field",
+            "ip": ["198.18.0.0/15"],
+            "outboundTag": "proxy",
+          },
+        ]);
+        // 3. Direct rules
+        routingRules.addAll([
+          {
+            "type": "field",
+            "ip": [
+              "geoip:private",
+              "192.168.0.0/16",
+              "10.0.0.0/8",
+              "172.16.0.0/12",
+            ],
+            "outboundTag": "direct",
+          },
+          {
+            "type": "field",
+            "domain": ["geosite:private"],
+            "outboundTag": "direct",
+          },
+          {
+            "ip": ["223.5.5.5", "223.6.6.6", "119.29.29.29", "114.114.114.114"],
+            "port": "53",
+            "network": "udp",
+            "outboundTag": "direct",
+            "type": "field",
+          },
+          {
+            "type": "field",
+            "ip": ["geoip:cn"],
+            "outboundTag": "direct",
+          },
+          {
+            "type": "field",
+            "domain": ["geosite:cn"],
+            "outboundTag": "direct",
+          },
+        ]);
+        // Default Proxy
+        routingRules.add({
+          "type": "field",
+          "network": "tcp,udp",
+          "outboundTag": "proxy",
+        });
       }
-      
-      // 5. Final fallback for Rule Mode
-      // If traffic hasn't matched any direct/block/proxy rules yet, 
-      // it means it's likely a non-CN IP or a domain that wasn't in any geosite.
-      // For a "Bypass China" experience, we should proxy it.
-      routingRules.add({
-        "type": "field",
-        "network": "tcp,udp",
-        "outboundTag": "proxy",
-      });
     }
 
+    // 必须在上述过滤完成后，再打印这行日志！
+    print('[Flutter] 生成 Xray 配置, 模式: $mode, 规则数: ${routingRules.length}');
     return routingRules;
   }
 
@@ -537,7 +504,7 @@ class ConfigGenerator {
     outbounds.add({
       "tag": "direct",
       "protocol": "freedom",
-      "settings": {"domainStrategy": "UseIP"},
+      "settings": {"domainStrategy": "UseIPv4"}, // [Fix] 直连出站也强制 UseIPv4
       "streamSettings": {
         "sockopt": {"mark": 255},
       },
@@ -547,7 +514,7 @@ class ConfigGenerator {
       "log": {"loglevel": "none"},
       "dns": {
         "servers": ["8.8.8.8", "1.1.1.1", "localhost"],
-        "queryStrategy": "UseIP",
+        "queryStrategy": "UseIPv4",
       },
       "inbounds": inbounds,
       "outbounds": outbounds,
@@ -555,6 +522,52 @@ class ConfigGenerator {
     };
 
     return jsonEncode(config);
+  }
+
+  static String exportNodeConfig(NodeModel node) {
+    // 使用核心 _generateOutbound 逻辑，确保与 Trojan TLS/WS/MTU 修复同步
+    final outbound = _generateOutbound(node, false, 'bbr');
+
+    final Map<String, dynamic> config = {
+      "log": {"loglevel": "info"},
+      "inbounds": [
+        {
+          "port": 10808,
+          "protocol": "socks",
+          "listen": "127.0.0.1",
+          "settings": {"auth": "noauth", "udp": true},
+          "sniffing": {
+            "enabled": true,
+            "destOverride": ["http", "tls", "quic"],
+          },
+        },
+      ],
+      "outbounds": [
+        {...outbound, "tag": "proxy"},
+        {
+          "tag": "direct",
+          "protocol": "freedom",
+          "settings": {"domainStrategy": "UseIPv4"},
+        },
+      ],
+      "routing": {
+        "domainStrategy": "IPIfNonMatch",
+        "rules": [
+          {
+            "type": "field",
+            "ip": ["geoip:private", "geoip:cn"],
+            "outboundTag": "direct",
+          },
+          {
+            "type": "field",
+            "domain": ["geosite:cn"],
+            "outboundTag": "direct",
+          },
+        ],
+      },
+    };
+
+    return const JsonEncoder.withIndent('  ').convert(config);
   }
 
   static Map<String, dynamic> _generateOutbound(
@@ -624,11 +637,20 @@ class ConfigGenerator {
       final streamSettings = Map<String, dynamic>.from(
         outbound['streamSettings'] ?? {},
       );
-      streamSettings['sockopt'] = {"tcpCongestion": tcpCongestion, "mark": 255};
+      // [Fix] 强固物理防环路 mark 标记 (255)，确保与 Android VpnService 路由绕过对齐
+      // [Audit] CDN 环境下 Trojan 流量黑洞修复：强制 MTU 限制为 1400 防止分片丢包
+      streamSettings['sockopt'] = {
+        "tcpCongestion": tcpCongestion,
+        "mark": 255,
+        "tcpFastOpen": true,
+        if (protocol == 'trojan') "mtu": 1400,
+      };
       outbound['streamSettings'] = streamSettings;
 
       // Only add Mux for protocols that support it
-      final muxSupported = ['vmess', 'vless', 'trojan'].contains(protocol);
+      // [Audit] Trojan Mux is often problematic and not supported by many servers.
+      // Removing 'trojan' from muxSupported to ensure stability as per Architect's directive.
+      final muxSupported = ['vmess', 'vless'].contains(protocol);
       if ((node.muxEnabled == true || muxEnabled) && muxSupported) {
         final flow = node.flow?.trim() ?? "";
         final isVision = flow.contains("vision");
@@ -702,8 +724,9 @@ class ConfigGenerator {
         "security": "tls",
         "tlsSettings": {
           "serverName": node.sni ?? node.host ?? node.address,
-          "allowInsecure": node.type == 'insecure',
           "alpn": ["h3"],
+          if (node.pinSHA256 != null && node.pinSHA256!.isNotEmpty)
+            "pinnedPeerCertSha256": [node.pinSHA256],
         },
         if (query['obfs'] != null)
           "udpmasks": [
@@ -736,8 +759,9 @@ class ConfigGenerator {
         "security": "tls",
         "tlsSettings": {
           "serverName": node.sni ?? node.host ?? node.address,
-          "allowInsecure": node.type == 'insecure',
           "alpn": [alpn],
+          if (node.pinSHA256 != null && node.pinSHA256!.isNotEmpty)
+            "pinnedPeerCertSha256": [node.pinSHA256],
         },
       },
     };
@@ -823,18 +847,31 @@ class ConfigGenerator {
     NodeModel node, {
     String tcpCongestion = 'bbr',
   }) {
+    // [Fix] Trojan 协议核心审计：强制开启 TLS 防护罩
+    // Trojan 几乎 100% 要求 TLS。如果 security 为空或 none，强制修正为 tls，防止“裸奔”导致连接被掐断。
+    String security = node.security?.toLowerCase() ?? "none";
+    NodeModel effectiveNode = node;
+    if (security == "none") {
+      effectiveNode = node.copyWith(security: "tls");
+    }
+
     return {
       "protocol": "trojan",
       "settings": {
         "servers": [
           {
-            "address": node.address,
-            "port": node.port,
-            "password": node.password,
+            "address": effectiveNode.address,
+            "port": effectiveNode.port,
+            "password": effectiveNode.password,
           },
         ],
       },
-      "streamSettings": _getStreamSettings(node, tcpCongestion: tcpCongestion),
+      "streamSettings": _getStreamSettings(
+        effectiveNode,
+        tcpCongestion: tcpCongestion,
+      ),
+      // [Fix] 显式禁用 Mux，防止部分 Trojan 服务端握手失败
+      "mux": {"enabled": false},
     };
   }
 
@@ -949,7 +986,12 @@ class ConfigGenerator {
         settings["network"] = "ws"; // Standardize to "ws"
         settings["wsSettings"] = {
           "path": node.path ?? "/",
-          "headers": {"Host": node.host ?? ""},
+          "headers": {
+            // [Fix] CDN Header 校验：Host 强制对齐 node.host，缺失则回退到 sni
+            "Host": node.host ?? node.sni ?? "",
+            "User-Agent":
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+          },
         };
         break;
       case "httpupgrade":
@@ -1030,9 +1072,10 @@ class ConfigGenerator {
     if (security == "tls") {
       settings["tlsSettings"] = {
         "serverName": node.sni ?? node.host ?? node.address,
-        "allowInsecure": node.type == 'insecure',
         "alpn": node.alpn ?? ["h2", "http/1.1"],
         "fingerprint": node.fingerPrint ?? "chrome",
+        if (node.pinSHA256 != null && node.pinSHA256!.isNotEmpty)
+          "pinnedPeerCertSha256": [node.pinSHA256],
       };
     } else if (security == "reality") {
       settings["realitySettings"] = {

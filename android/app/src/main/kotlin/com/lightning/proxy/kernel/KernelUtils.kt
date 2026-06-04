@@ -5,6 +5,9 @@ import com.lightning.proxy.service.LightningVpnService
 import libxray.Libxray
 import android.system.Os
 import android.util.Log
+import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -19,6 +22,8 @@ import kotlin.concurrent.withLock
 object KernelUtils {
     private const val TAG = "KernelUtils"
     private val testLock = ReentrantLock()
+    private val measureSemaphore = Semaphore(64) // 大幅放宽并发，对齐 v2rayNG
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     fun start(config: String): String {
         return Libxray.startXray(config)
@@ -29,181 +34,60 @@ object KernelUtils {
     }
 
     /**
-     * Extracts asset directory from config and sets environment variables.
-     * Returns the actual JSON config.
-     */
-    private fun prepareConfig(config: String): String {
-        if (!config.startsWith("__XRAY_ASSET_DIR__=")) {
-            return config
-        }
-        
-        val firstNewline = config.indexOf('\n')
-        if (firstNewline == -1) return config
-        
-        val line = config.substring(0, firstNewline).trim()
-        val assetDir = line.substring("__XRAY_ASSET_DIR__=".length)
-        
-        try {
-            Os.setenv("XRAY_LOCATION_ASSET", assetDir, true)
-            System.setProperty("xray.location.asset", assetDir)
-            Log.d(TAG, "Set Xray asset dir for test: $assetDir")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to set asset dir: ${e.message}")
-        }
-        
-        return config.substring(firstNewline + 1)
-    }
-
-    /**
-     * Measures single node delay.
-     * If VPN is running, it uses the existing instance to avoid connection interruption.
-     */
-    fun measureSingleDelay(config: String): Long {
-        val isVpnRunning = LightningVpnService.isServiceRunning
-        VpnLogChannel.sendLogToFlutter("[Kernel] measureSingleDelay 开始: isVpnRunning=$isVpnRunning", "debug")
-
-        return testLock.withLock {
-            var isStarted = false
-            try {
-                val actualConfig = prepareConfig(config)
-
-                // We always try to start a temporary core on 10810 for testing
-                if (!isVpnRunning) {
-                    VpnLogChannel.sendLogToFlutter("[Kernel] VPN 未运行, 启动临时核心测速...", "debug")
-                    Libxray.stopXray()
-                    // Increased wait for port release
-                    Thread.sleep(200)
-                    val startResult = Libxray.startXray(actualConfig)
-                if (startResult.isNotEmpty()) {
-                    VpnLogChannel.sendLogToFlutter("[Kernel] ❌ 启动 Xray 测速失败: $startResult", "error")
-                    return@withLock -2L
-                }
-                isStarted = true
-                VpnLogChannel.sendLogToFlutter("[Kernel] Xray 已启动, 等待握手...", "debug")
-                // Give it some time to handshake
-                Thread.sleep(800)
-                } else {
-                    VpnLogChannel.sendLogToFlutter("[Kernel] VPN 正在运行, 跳过测速", "warning")
-                    return@withLock -2L
-                }
-
-                VpnLogChannel.sendLogToFlutter("[Kernel] 发送 HTTPS 请求到 google.com...", "debug")
-                val startTime = System.nanoTime()
-                // Use unresolved address to ensure DNS is handled via proxy if possible
-                val proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress.createUnresolved("127.0.0.1", 10810))
-                val connection = URL("https://www.google.com/generate_204").openConnection(proxy) as HttpURLConnection
-
-                connection.apply {
-                    connectTimeout = 10000
-                    readTimeout = 10000
-                    useCaches = false
-                    instanceFollowRedirects = false
-                    requestMethod = "GET"
-                    setRequestProperty("Connection", "close")
-                    setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
-                }
-
-                val responseCode = connection.responseCode
-                val delay = if (responseCode == 204 || responseCode == 200) {
-                    val ms = (System.nanoTime() - startTime) / 1_000_000
-                    VpnLogChannel.sendLogToFlutter("[Kernel] ✅ 测速成功: ${ms}ms", "debug")
-                    ms
-                } else {
-                    VpnLogChannel.sendLogToFlutter("[Kernel] ❌ 测速失败: HTTP $responseCode", "warning")
-                    -2L
-                }
-                return@withLock delay
-            } catch (e: Exception) {
-                VpnLogChannel.sendLogToFlutter("[Kernel] ❌ 测速异常: ${e.message}", "error")
-                return@withLock -2L
-            } finally {
-                if (isStarted) {
-                    VpnLogChannel.sendLogToFlutter("[Kernel] 停止临时核心...", "debug")
-                    try { Libxray.stopXray() } catch (e: Exception) {}
-                }
-            }
-        }
-    }
-
-    /**
-     * Measures the delay for multiple nodes in parallel.
-     * config: The batch Xray config
-     * count: Number of nodes to test
+     * Measures the delay for multiple nodes in parallel using sandboxed Go engine.
+     * configs: List of config payloads for each node
      * returns: Comma-separated delay values
      */
-    fun measureBatchDelay(config: String, count: Int): String {
-        val isVpnRunning = LightningVpnService.isServiceRunning
-        
-        return testLock.withLock {
-            var isStarted = false
-            try {
-                if (isVpnRunning) {
-                    return@withLock ""
-                }
-
-                val actualConfig = prepareConfig(config)
-                Libxray.stopXray()
-                Thread.sleep(150)
-                
-                Log.d(TAG, "Starting Xray for batch test, count: $count")
-                val startResult = Libxray.startXray(actualConfig)
-                if (startResult.isNotEmpty()) {
-                    Log.e(TAG, "Failed to start Xray for batch test: $startResult")
-                    return@withLock ""
-                }
-                isStarted = true
-                Thread.sleep(1200)
-                
-                val results = LongArray(count) { -2L }
-                val executors = Executors.newFixedThreadPool(minOf(count, 32))
-                val latches = CountDownLatch(count)
-                
-                for (i in 0 until count) {
-                    val port = 10811 + i
-                    val index = i
-                    executors.execute {
+    fun measureBatchDelay(configs: List<String>): String {
+        return runBlocking {
+            val jobs = configs.map { config ->
+                async {
+                    measureSemaphore.withPermit {
                         try {
-                            Log.d(TAG, "Testing node $index on port $port")
-                            val startTime = System.nanoTime()
-                            // Use unresolved address for proxy
-                            val proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress.createUnresolved("127.0.0.1", port))
-                            val connection = URL("https://www.google.com/generate_204").openConnection(proxy) as HttpURLConnection
-                            
-                            connection.apply {
-                                connectTimeout = 10000
-                                readTimeout = 10000
-                                useCaches = false
-                                instanceFollowRedirects = false
-                                requestMethod = "GET"
-                                setRequestProperty("Connection", "close")
-                                setRequestProperty("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
-                            }
-                            
-                            val responseCode = connection.responseCode
-                            Log.d(TAG, "Node $index response: $responseCode")
-                            if (responseCode == 204 || responseCode == 200) {
-                                results[index] = (System.nanoTime() - startTime) / 1_000_000
-                            }
+                            // 第 1 层超时：Kotlin 协程 6 秒硬超时 (同步放宽至 Go 层 5.5s 以上)
+                            withTimeoutOrNull(6000L) {
+                                // 调用 Go 层沙盒测速接口
+                                val result = Libxray.measureRealDelay(config)
+                                val parts = result.split("|")
+                                val delay = parts[0].toLong()
+                                if (parts.size > 1 && parts[1].isNotEmpty()) {
+                                    VpnLogChannel.sendLogToFlutter("[Go-Debug] Batch: ${parts[1]}", "debug")
+                                }
+                                delay
+                            } ?: -1L
                         } catch (e: Exception) {
-                            Log.e(TAG, "Node $index failed: ${e.message}")
-                        } finally {
-                            latches.countDown()
+                            Log.e(TAG, "Sandboxed measure failed: ${e.message}")
+                            VpnLogChannel.sendLogToFlutter("[Go-Error] Sandboxed measure failed: ${e.message}", "error")
+                            -1L
                         }
                     }
                 }
-                
-                latches.await(20, TimeUnit.SECONDS)
-                executors.shutdownNow()
-                
-                results.joinToString(",")
-            } catch (e: Exception) {
-                Log.e(TAG, "Batch test error: ${e.message}")
-                ""
-            } finally {
-                if (isStarted) {
-                    try { Libxray.stopXray() } catch (e: Exception) {}
-                }
             }
+            jobs.awaitAll().joinToString(",")
+        }
+    }
+
+    /**
+     * Measures single node delay using sandboxed Go engine.
+     */
+    fun measureSingleDelay(config: String): Long {
+        return try {
+            // 第 1 层超时：Kotlin 协程 6 秒硬超时
+            runBlocking {
+                withTimeoutOrNull(6000L) {
+                    val result = Libxray.measureRealDelay(config)
+                    val parts = result.split("|")
+                    val delay = parts[0].toLong()
+                    if (parts.size > 1 && parts[1].isNotEmpty()) {
+                        VpnLogChannel.sendLogToFlutter("[Go-Debug] Single: ${parts[1]}", "debug")
+                    }
+                    delay
+                } ?: -1L
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Single sandboxed measure failed: ${e.message}")
+            VpnLogChannel.sendLogToFlutter("[Go-Error] Single sandboxed measure failed: ${e.message}", "error")
+            -1L
         }
     }
 
@@ -213,32 +97,17 @@ object KernelUtils {
      * Enhanced with multiple retries and longer timeout.
      */
     fun tcpPing(address: String, port: Int): Long {
-        var minDelay = Long.MAX_VALUE
-        var successCount = 0
-        
-        // Test up to 5 times to handle network jitter/packet loss
-        for (i in 0 until 5) {
-            try {
-                val startTime = System.nanoTime()
-                val socket = java.net.Socket()
-                // Increased timeout to 5000ms for slow/mobile networks
-                socket.connect(java.net.InetSocketAddress(address, port), 5000)
-                val delay = (System.nanoTime() - startTime) / 1_000_000
-                socket.close()
-                
-                if (delay < minDelay) {
-                    minDelay = delay
-                }
-                successCount++
-                // Small gap between pings to avoid being flagged by firewalls
-                Thread.sleep(100)
-            } catch (e: Exception) {
-                // Ignore failure of single ping and retry
-            }
+        try {
+            val startTime = System.nanoTime()
+            val socket = java.net.Socket()
+            // 铁证：TCP 握手超时放宽至 3000ms，捞回高延迟边缘节点
+            socket.connect(java.net.InetSocketAddress(address, port), 3000)
+            val delay = (System.nanoTime() - startTime) / 1_000_000
+            socket.close()
+            return delay
+        } catch (e: Exception) {
+            return -2L
         }
-        
-        // If all 5 attempts failed, return -2 (Timeout)
-        return if (successCount > 0) minDelay else -2L
     }
 
     fun getVersion(): String {

@@ -50,34 +50,46 @@ class RoutingPage extends ConsumerWidget {
                     borderRadius: BorderRadius.circular(20),
                     clipBehavior: Clip.antiAlias, // 修复点击时的暗色三角问题
                     child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 4),
-                    title: Text(
-                      rule.outboundTag.toUpperCase(),
-                      style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
-                    ),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 6),
-                      child: Text(
-                        _getRuleSummary(rule),
-                        style: TextStyle(color: Colors.grey.shade600, fontSize: 12, fontWeight: FontWeight.w500),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 4,
                       ),
-                    ),
-                    trailing: Switch(
-                      value: rule.enabled,
-                      onChanged: (v) {
-                        HapticFeedback.lightImpact();
-                        ref.read(routingProvider.notifier).toggleRule(rule.id);
+                      title: Text(
+                        rule.outboundTag.toUpperCase(),
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 16,
+                        ),
+                      ),
+                      subtitle: Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          _getRuleSummary(rule),
+                          style: TextStyle(
+                            color: Colors.grey.shade600,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      trailing: Switch(
+                        value: rule.enabled,
+                        onChanged: (v) {
+                          HapticFeedback.lightImpact();
+                          ref
+                              .read(routingProvider.notifier)
+                              .toggleRule(rule.id);
+                        },
+                        activeColor: theme.colorScheme.primary,
+                      ),
+                      onLongPress: () {
+                        HapticFeedback.mediumImpact();
+                        _showRuleOptions(context, ref, rule);
                       },
-                      activeColor: theme.colorScheme.primary,
                     ),
-                    onLongPress: () {
-                      HapticFeedback.mediumImpact();
-                      _showRuleOptions(context, ref, rule);
-                    },
                   ),
-                ),
-              );
-            },
+                );
+              },
             ),
     );
   }
@@ -91,7 +103,11 @@ class RoutingPage extends ConsumerWidget {
           const SizedBox(height: 20),
           const Text(
             '暂无自定义规则',
-            style: TextStyle(color: Colors.grey, fontSize: 16, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              color: Colors.grey,
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+            ),
           ),
           const SizedBox(height: 8),
           const Text(
@@ -111,7 +127,10 @@ class RoutingPage extends ConsumerWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             ListTile(
-              leading: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+              leading: const Icon(
+                Icons.delete_outline_rounded,
+                color: Colors.red,
+              ),
               title: const Text('删除规则', style: TextStyle(color: Colors.red)),
               onTap: () {
                 ref.read(routingProvider.notifier).removeRule(rule.id);
@@ -144,8 +163,13 @@ class RoutingPage extends ConsumerWidget {
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          title: const Text('添加规则', style: TextStyle(fontWeight: FontWeight.w900)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+          ),
+          title: const Text(
+            '添加规则',
+            style: TextStyle(fontWeight: FontWeight.w900),
+          ),
           content: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
@@ -183,7 +207,10 @@ class RoutingPage extends ConsumerWidget {
                   value: outboundTag,
                   decoration: const InputDecoration(labelText: '动作'),
                   items: const [
-                    DropdownMenuItem(value: 'direct', child: Text('直连 (Direct)')),
+                    DropdownMenuItem(
+                      value: 'direct',
+                      child: Text('直连 (Direct)'),
+                    ),
                     DropdownMenuItem(value: 'proxy', child: Text('代理 (Proxy)')),
                     DropdownMenuItem(value: 'block', child: Text('阻断 (Block)')),
                   ],
@@ -220,10 +247,13 @@ class RoutingPage extends ConsumerWidget {
                     .where((e) => e.isNotEmpty)
                     .toList();
 
-                if (domains.isEmpty && ips.isEmpty && ports.isEmpty && networks.isEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('请输入至少一个过滤条件')),
-                  );
+                if (domains.isEmpty &&
+                    ips.isEmpty &&
+                    ports.isEmpty &&
+                    networks.isEmpty) {
+                  ScaffoldMessenger.of(
+                    context,
+                  ).showSnackBar(const SnackBar(content: Text('请输入至少一个过滤条件')));
                   return;
                 }
 

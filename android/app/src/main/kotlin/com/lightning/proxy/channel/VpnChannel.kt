@@ -114,27 +114,46 @@ class VpnChannel(private val activity: Activity) : MethodChannel.MethodCallHandl
                 val config = call.argument<String>("config")
                 VpnLogChannel.sendLogToFlutter("[VpnChannel] measureSingleDelay: config长度=${config?.length ?: 0}", "debug")
                 Thread {
-                    val delay = if (config != null) {
-                        KernelUtils.measureSingleDelay(config)
-                    } else {
-                        VpnLogChannel.sendLogToFlutter("[VpnChannel] measureSingleDelay 错误: config 为空", "error")
-                        -2L
+                    try {
+                        val delay = if (config != null) {
+                            KernelUtils.measureSingleDelay(config)
+                        } else {
+                            VpnLogChannel.sendLogToFlutter("[VpnChannel] measureSingleDelay 错误: config 为空", "error")
+                            -2L
+                        }
+                        // [Fix] 铁血重构：强制切回主线程回传，防止 MethodChannel 子线程丢弃死锁
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            result.success(delay.toInt())
+                        }
+                    } catch (e: Exception) {
+                        VpnLogChannel.sendLogToFlutter("[VpnChannel] measureSingleDelay 原生崩溃拦截: ${e.message}", "error")
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            result.success(-2) // 发生崩溃时返回超时
+                        }
                     }
-                    activity.runOnUiThread { result.success(delay.toInt()) }
                 }.start()
             }
             "measureBatchDelay" -> {
-                val config = call.argument<String>("config")
-                val count = call.argument<Int>("count")
-                VpnLogChannel.sendLogToFlutter("[VpnChannel] measureBatchDelay: count=$count", "debug")
+                val configs = call.argument<List<String>>("configs")
+                VpnLogChannel.sendLogToFlutter("[VpnChannel] measureBatchDelay: configs count=${configs?.size ?: 0}", "debug")
                 Thread {
-                    val results = if (config != null && count != null) {
-                        KernelUtils.measureBatchDelay(config, count)
-                    } else {
-                        VpnLogChannel.sendLogToFlutter("[VpnChannel] measureBatchDelay 错误: 参数为空", "error")
-                        ""
+                    try {
+                        val results = if (configs != null) {
+                            KernelUtils.measureBatchDelay(configs)
+                        } else {
+                            VpnLogChannel.sendLogToFlutter("[VpnChannel] measureBatchDelay 错误: 参数为空", "error")
+                            ""
+                        }
+                        // [Fix] 铁血重构：强制切回主线程回传
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            result.success(results)
+                        }
+                    } catch (e: Exception) {
+                        VpnLogChannel.sendLogToFlutter("[VpnChannel] measureBatchDelay 原生崩溃拦截: ${e.message}", "error")
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            result.success("") // 发生崩溃时返回空字符串，由 Dart 层兜底为 -1
+                        }
                     }
-                    activity.runOnUiThread { result.success(results) }
                 }.start()
             }
             "tcpPing" -> {
@@ -142,13 +161,23 @@ class VpnChannel(private val activity: Activity) : MethodChannel.MethodCallHandl
                 val port = call.argument<Int>("port")
                 VpnLogChannel.sendLogToFlutter("[VpnChannel] tcpPing: $address:$port", "debug")
                 Thread {
-                    val delay = if (address != null && port != null) {
-                        KernelUtils.tcpPing(address, port)
-                    } else {
-                        VpnLogChannel.sendLogToFlutter("[VpnChannel] tcpPing 错误: 参数为空", "error")
-                        -2L
+                    try {
+                        val delay = if (address != null && port != null) {
+                            KernelUtils.tcpPing(address, port)
+                        } else {
+                            VpnLogChannel.sendLogToFlutter("[VpnChannel] tcpPing 错误: 参数为空", "error")
+                            -2L
+                        }
+                        // [Fix] 铁血重构：强制切回主线程回传
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            result.success(delay.toInt())
+                        }
+                    } catch (e: Exception) {
+                        VpnLogChannel.sendLogToFlutter("[VpnChannel] tcpPing 原生崩溃拦截: ${e.message}", "error")
+                        android.os.Handler(android.os.Looper.getMainLooper()).post {
+                            result.success(-2)
+                        }
                     }
-                    activity.runOnUiThread { result.success(delay.toInt()) }
                 }.start()
             }
             "requestBatteryOptimization" -> {

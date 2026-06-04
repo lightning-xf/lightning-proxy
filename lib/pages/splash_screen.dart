@@ -9,7 +9,8 @@ class SplashScreen extends StatefulWidget {
   State<SplashScreen> createState() => _SplashScreenState();
 }
 
-class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderStateMixin {
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
   late Animation<double> _fadeAnimation;
 
@@ -23,15 +24,18 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
 
     _fadeAnimation = TweenSequence<double>([
       TweenSequenceItem(
-        tween: Tween(begin: 0.0, end: 1.0).chain(CurveTween(curve: Curves.easeIn)),
+        tween: Tween(
+          begin: 0.0,
+          end: 1.0,
+        ).chain(CurveTween(curve: Curves.easeIn)),
         weight: 20,
       ),
+      TweenSequenceItem(tween: ConstantTween(1.0), weight: 60),
       TweenSequenceItem(
-        tween: ConstantTween(1.0),
-        weight: 60,
-      ),
-      TweenSequenceItem(
-        tween: Tween(begin: 1.0, end: 0.0).chain(CurveTween(curve: Curves.easeOut)),
+        tween: Tween(
+          begin: 1.0,
+          end: 0.0,
+        ).chain(CurveTween(curve: Curves.easeOut)),
         weight: 20,
       ),
     ]).animate(_controller);
@@ -61,10 +65,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
               SizedBox(
                 width: 100,
                 height: 100,
-                child: Image.asset(
-                  'icon.png',
-                  fit: BoxFit.contain,
-                ),
+                child: Image.asset('icon.png', fit: BoxFit.contain),
               ),
               const SizedBox(height: 24),
               // App Name

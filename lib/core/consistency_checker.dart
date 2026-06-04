@@ -6,9 +6,12 @@ class ConsistencyChecker {
   /// Validates if the exported configuration map is consistent with the original raw data.
   /// If [strict] is true, it requires all keys to match exactly.
   /// Returns a list of differences found.
-  static List<String> checkConsistency(NodeModel node, Map<String, dynamic> exportedData) {
+  static List<String> checkConsistency(
+    NodeModel node,
+    Map<String, dynamic> exportedData,
+  ) {
     if (node.rawData == null) return [];
-    
+
     final List<String> differences = [];
     final original = node.rawData!;
 
@@ -20,7 +23,9 @@ class ConsistencyChecker {
         final exportedValue = exportedData[key];
         // Normalize value comparison (strings vs numbers etc)
         if (value.toString() != exportedValue.toString()) {
-          differences.add("Modified field: $key (Original: $value, Exported: $exportedValue)");
+          differences.add(
+            "Modified field: $key (Original: $value, Exported: $exportedValue)",
+          );
         }
       }
     });
@@ -55,7 +60,9 @@ class ConsistencyChecker {
         final exportedQuery = uri.queryParameters;
         final diffs = checkConsistency(node, exportedQuery);
         if (diffs.isNotEmpty) {
-          debugPrint("${node.protocol.toUpperCase()} Consistency Audit Failed: ${diffs.join(', ')}");
+          debugPrint(
+            "${node.protocol.toUpperCase()} Consistency Audit Failed: ${diffs.join(', ')}",
+          );
           return false;
         }
       }

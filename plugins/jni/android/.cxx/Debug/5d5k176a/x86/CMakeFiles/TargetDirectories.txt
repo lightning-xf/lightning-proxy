@@ -1,3 +1,0 @@
-D:/zhuomian/lightning-android/plugins/jni/android/.cxx/Debug/5d5k176a/x86/CMakeFiles/jni.dir
-D:/zhuomian/lightning-android/plugins/jni/android/.cxx/Debug/5d5k176a/x86/CMakeFiles/edit_cache.dir
-D:/zhuomian/lightning-android/plugins/jni/android/.cxx/Debug/5d5k176a/x86/CMakeFiles/rebuild_cache.dir

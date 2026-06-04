@@ -1,7 +1,9 @@
 import 'package:flutter/services.dart';
 
 class ProxyChannel {
-  static const MethodChannel _channel = MethodChannel('com.lightning.proxy/vpn');
+  static const MethodChannel _channel = MethodChannel(
+    'com.lightning.proxy/vpn',
+  );
 
   static Future<void> startProxy(String config, String nodeName) async {
     try {
@@ -51,7 +53,9 @@ class ProxyChannel {
 
   static Future<int> measureSingleDelay(String config) async {
     try {
-      final int delay = await _channel.invokeMethod('measureSingleDelay', {'config': config});
+      final int delay = await _channel.invokeMethod('measureSingleDelay', {
+        'config': config,
+      });
       return delay;
     } catch (e) {
       return -2; // Timeout or error
@@ -67,16 +71,15 @@ class ProxyChannel {
     }
   }
 
-  static Future<List<int>> measureBatchDelay(String config, int count) async {
+  static Future<List<int>> measureBatchDelay(List<String> configs) async {
     try {
       final String result = await _channel.invokeMethod('measureBatchDelay', {
-        'config': config,
-        'count': count,
+        'configs': configs,
       });
-      if (result.isEmpty) return List.filled(count, -2);
+      if (result.isEmpty) return List.filled(configs.length, -2);
       return result.split(',').map((e) => int.tryParse(e) ?? -2).toList();
     } catch (e) {
-      return List.filled(count, -2);
+      return List.filled(configs.length, -2);
     }
   }
 

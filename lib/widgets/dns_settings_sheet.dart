@@ -202,7 +202,12 @@ class _DnsSettingsSheetState extends ConsumerState<DnsSettingsSheet> {
                         hintText: '1.1.1.1, 8.8.8.8',
                         onPresetTap: () => _showPresetDnsDialog(true),
                       ),
-                      const Divider(height: 1, indent: 56, endIndent: 16, color: Colors.white10),
+                      const Divider(
+                        height: 1,
+                        indent: 56,
+                        endIndent: 16,
+                        color: Colors.white10,
+                      ),
                       _buildSwitchTile(
                         icon: Icons.language_rounded,
                         title: s.get('enable_ipv6'),
@@ -236,7 +241,12 @@ class _DnsSettingsSheetState extends ConsumerState<DnsSettingsSheet> {
                         onChanged: (v) => setState(() => _enableLocalDns = v),
                       ),
                       if (_enableLocalDns) ...[
-                        const Divider(height: 1, indent: 56, endIndent: 16, color: Colors.white10),
+                        const Divider(
+                          height: 1,
+                          indent: 56,
+                          endIndent: 16,
+                          color: Colors.white10,
+                        ),
                         _buildTextFieldTile(
                           icon: Icons.settings_ethernet_rounded,
                           title: s.get('local_dns_port'),
@@ -365,7 +375,10 @@ class _DnsSettingsSheetState extends ConsumerState<DnsSettingsSheet> {
         clipBehavior: Clip.antiAlias,
         child: ListTile(
           dense: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 16,
+            vertical: 4,
+          ),
           leading: Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
@@ -436,7 +449,10 @@ class _DnsSettingsSheetState extends ConsumerState<DnsSettingsSheet> {
                   children: [
                     Text(
                       title,
-                      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 14),
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 14,
+                      ),
                     ),
                     Text(
                       subtitle,

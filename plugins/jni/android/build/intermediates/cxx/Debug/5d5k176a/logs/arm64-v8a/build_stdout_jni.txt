@@ -1,2 +1,0 @@
-ninja: Entering directory `D:\zhuomian\lightning-android\plugins\jni\android\.cxx\Debug\5d5k176a\arm64-v8a'
-ninja: no work to do.

@@ -555,6 +555,7 @@ class SubscriptionsPage extends ConsumerWidget {
       text: initialName ?? (initialUrl != null ? '新订阅' : ''),
     );
     final urlController = TextEditingController(text: initialUrl ?? '');
+    final formKey = GlobalKey<FormState>();
     bool autoUpdate = true;
     int interval = 24;
     bool currentIsFile = isFile;
@@ -565,98 +566,132 @@ class SubscriptionsPage extends ConsumerWidget {
         builder: (context, setState) => AlertDialog(
           title: Text(initialUrl != null ? '确认订阅信息' : '添加订阅'),
           content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: '订阅名称',
-                    hintText: '给订阅起个名字',
-                    prefixIcon: Icon(Icons.label_outline_rounded),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: '订阅名称',
+                      hintText: '给订阅起个名字',
+                      prefixIcon: Icon(Icons.label_outline_rounded),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return '请输入订阅名称';
+                      }
+                      return null;
+                    },
                   ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: urlController,
-                        decoration: InputDecoration(
-                          labelText: currentIsFile ? '文件路径' : '订阅链接',
-                          hintText: currentIsFile
-                              ? '/path/to/config.yaml'
-                              : 'http://...',
-                          prefixIcon: Icon(
-                            currentIsFile
-                                ? Icons.file_present_rounded
-                                : Icons.link_rounded,
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: urlController,
+                          decoration: InputDecoration(
+                            labelText: currentIsFile ? '文件路径' : '订阅链接',
+                            hintText: currentIsFile
+                                ? '/path/to/config.yaml'
+                                : 'http://...',
+                            prefixIcon: Icon(
+                              currentIsFile
+                                  ? Icons.file_present_rounded
+                                  : Icons.link_rounded,
+                            ),
                           ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return currentIsFile ? '请输入文件路径' : '请输入订阅链接';
+                            }
+                            if (!currentIsFile) {
+                              // 工业级标准 HTTP/HTTPS 链接匹配正则
+                              final urlPattern =
+                                  r'^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$';
+                              final regExp = RegExp(
+                                urlPattern,
+                                caseSensitive: false,
+                              );
+                              if (!regExp.hasMatch(value.trim())) {
+                                return '请输入有效的 http:// 或 https:// 链接';
+                              }
+                            }
+                            return null;
+                          },
                         ),
                       ),
-                    ),
-                    if (currentIsFile)
-                      IconButton(
-                        icon: const Icon(Icons.folder_open_rounded),
-                        onPressed: () async {
-                          final result = await FilePicker.platform.pickFiles(
-                            type: FileType.any,
-                          );
-                          if (result != null &&
-                              result.files.single.path != null) {
-                            setState(() {
-                              urlController.text = result.files.single.path!;
-                              if (nameController.text.isEmpty ||
-                                  nameController.text == '新订阅') {
-                                nameController.text = result.files.single.name;
-                              }
-                            });
-                          }
-                        },
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                SwitchListTile(
-                  title: const Text(
-                    '自动更新',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                  ),
-                  subtitle: Text(
-                    currentIsFile ? '定期重新读取文件内容' : '定期同步云端节点',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  value: autoUpdate,
-                  onChanged: (v) => setState(() => autoUpdate = v),
-                  contentPadding: EdgeInsets.zero,
-                ),
-                if (autoUpdate)
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.update_rounded,
-                        size: 20,
-                        color: Colors.grey,
-                      ),
-                      const SizedBox(width: 8),
-                      const Text('更新间隔 (小时): ', style: TextStyle(fontSize: 13)),
-                      const SizedBox(width: 12),
-                      DropdownButton<int>(
-                        value: interval,
-                        items: [1, 6, 12, 24, 48, 72]
-                            .map(
-                              (e) => DropdownMenuItem(
-                                value: e,
-                                child: Text(e.toString()),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (v) => setState(() => interval = v!),
-                      ),
+                      if (currentIsFile)
+                        IconButton(
+                          icon: const Icon(Icons.folder_open_rounded),
+                          onPressed: () async {
+                            final result = await FilePicker.platform.pickFiles(
+                              type: FileType.any,
+                            );
+                            if (result != null &&
+                                result.files.single.path != null) {
+                              setState(() {
+                                urlController.text = result.files.single.path!;
+                                if (nameController.text.isEmpty ||
+                                    nameController.text == '新订阅') {
+                                  nameController.text =
+                                      result.files.single.name;
+                                }
+                              });
+                            }
+                          },
+                        ),
                     ],
                   ),
-              ],
+                  const SizedBox(height: 16),
+                  SwitchListTile(
+                    title: const Text(
+                      '自动更新',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    subtitle: Text(
+                      currentIsFile ? '定期重新读取文件内容' : '定期同步云端节点',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    value: autoUpdate,
+                    onChanged: (v) => setState(() => autoUpdate = v),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  if (autoUpdate)
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.update_rounded,
+                          size: 20,
+                          color: Colors.grey,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          '更新间隔 (小时): ',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                        const SizedBox(width: 12),
+                        DropdownButton<int>(
+                          value: interval,
+                          items: [1, 6, 12, 24, 48, 72]
+                              .map(
+                                (e) => DropdownMenuItem(
+                                  value: e,
+                                  child: Text(e.toString()),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) => setState(() => interval = v!),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -666,19 +701,18 @@ class SubscriptionsPage extends ConsumerWidget {
             ),
             ElevatedButton(
               onPressed: () {
-                if (urlController.text.isEmpty) return;
-                final sub = SubscriptionModel(
-                  id: DateTime.now().millisecondsSinceEpoch.toString(),
-                  name: nameController.text.isEmpty
-                      ? '未命名订阅'
-                      : nameController.text,
-                  url: urlController.text.trim(),
-                  autoUpdate: autoUpdate,
-                  updateInterval: interval,
-                  isFile: currentIsFile,
-                );
-                ref.read(subscriptionProvider.notifier).addSubscription(sub);
-                Navigator.pop(context);
+                if (formKey.currentState?.validate() ?? false) {
+                  final sub = SubscriptionModel(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    name: nameController.text.trim(),
+                    url: urlController.text.trim(),
+                    autoUpdate: autoUpdate,
+                    updateInterval: interval,
+                    isFile: currentIsFile,
+                  );
+                  ref.read(subscriptionProvider.notifier).addSubscription(sub);
+                  Navigator.pop(context);
+                }
               },
               child: const Text('确定'),
             ),
@@ -765,6 +799,7 @@ class SubscriptionsPage extends ConsumerWidget {
   ) {
     final nameController = TextEditingController(text: sub.name);
     final urlController = TextEditingController(text: sub.url);
+    final formKey = GlobalKey<FormState>();
     bool autoUpdate = sub.autoUpdate;
     int interval = sub.updateInterval;
 
@@ -774,86 +809,118 @@ class SubscriptionsPage extends ConsumerWidget {
         builder: (context, setState) => AlertDialog(
           title: const Text('编辑订阅'),
           content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: '订阅名称',
-                    prefixIcon: Icon(Icons.label_outline_rounded),
+            child: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    controller: nameController,
+                    decoration: const InputDecoration(
+                      labelText: '订阅名称',
+                      prefixIcon: Icon(Icons.label_outline_rounded),
+                    ),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return '请输入订阅名称';
+                      }
+                      return null;
+                    },
                   ),
-                ),
-                const SizedBox(height: 12),
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: urlController,
-                        decoration: InputDecoration(
-                          labelText: sub.isFile ? '文件路径' : '订阅链接',
-                          prefixIcon: Icon(
-                            sub.isFile
-                                ? Icons.file_present_rounded
-                                : Icons.link_rounded,
+                  const SizedBox(height: 12),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: TextFormField(
+                          controller: urlController,
+                          decoration: InputDecoration(
+                            labelText: sub.isFile ? '文件路径' : '订阅链接',
+                            prefixIcon: Icon(
+                              sub.isFile
+                                  ? Icons.file_present_rounded
+                                  : Icons.link_rounded,
+                            ),
                           ),
+                          validator: (value) {
+                            if (value == null || value.trim().isEmpty) {
+                              return sub.isFile ? '请输入文件路径' : '请输入订阅链接';
+                            }
+                            if (!sub.isFile) {
+                              final urlPattern =
+                                  r'^https?:\/\/(www\.)?[-a-zA-Z0-9@:%._\+~#=]{1,256}\.[a-zA-Z0-9()]{1,6}\b([-a-zA-Z0-9()@:%_\+.~#?&//=]*)$';
+                              final regExp = RegExp(
+                                urlPattern,
+                                caseSensitive: false,
+                              );
+                              if (!regExp.hasMatch(value.trim())) {
+                                return '请输入有效的 http:// 或 https:// 链接';
+                              }
+                            }
+                            return null;
+                          },
                         ),
                       ),
-                    ),
-                    if (sub.isFile)
-                      IconButton(
-                        icon: const Icon(Icons.folder_open_rounded),
-                        onPressed: () async {
-                          final result = await FilePicker.platform.pickFiles(
-                            type: FileType.any,
-                          );
-                          if (result != null &&
-                              result.files.single.path != null) {
-                            setState(() {
-                              urlController.text = result.files.single.path!;
-                            });
-                          }
-                        },
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                SwitchListTile(
-                  title: const Text(
-                    '自动更新',
-                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-                  ),
-                  value: autoUpdate,
-                  onChanged: (v) => setState(() => autoUpdate = v),
-                  contentPadding: EdgeInsets.zero,
-                ),
-                if (autoUpdate)
-                  Row(
-                    children: [
-                      const Icon(
-                        Icons.update_rounded,
-                        size: 20,
-                        color: Colors.grey,
-                      ),
-                      const SizedBox(width: 8),
-                      const Text('更新间隔 (小时): ', style: TextStyle(fontSize: 13)),
-                      const SizedBox(width: 12),
-                      DropdownButton<int>(
-                        value: interval,
-                        items: [1, 6, 12, 24, 48, 72]
-                            .map(
-                              (e) => DropdownMenuItem(
-                                value: e,
-                                child: Text(e.toString()),
-                              ),
-                            )
-                            .toList(),
-                        onChanged: (v) => setState(() => interval = v!),
-                      ),
+                      if (sub.isFile)
+                        IconButton(
+                          icon: const Icon(Icons.folder_open_rounded),
+                          onPressed: () async {
+                            final result = await FilePicker.platform.pickFiles(
+                              type: FileType.any,
+                            );
+                            if (result != null &&
+                                result.files.single.path != null) {
+                              setState(() {
+                                urlController.text = result.files.single.path!;
+                              });
+                            }
+                          },
+                        ),
                     ],
                   ),
-              ],
+                  const SizedBox(height: 16),
+                  SwitchListTile(
+                    title: const Text(
+                      '自动更新',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    value: autoUpdate,
+                    onChanged: (v) => setState(() => autoUpdate = v),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  if (autoUpdate)
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.update_rounded,
+                          size: 20,
+                          color: Colors.grey,
+                        ),
+                        const SizedBox(width: 8),
+                        const Text(
+                          '更新间隔 (小时): ',
+                          style: TextStyle(fontSize: 13),
+                        ),
+                        const SizedBox(width: 12),
+                        DropdownButton<int>(
+                          value: interval,
+                          items: [1, 6, 12, 24, 48, 72]
+                              .map(
+                                (e) => DropdownMenuItem(
+                                  value: e,
+                                  child: Text(e.toString()),
+                                ),
+                              )
+                              .toList(),
+                          onChanged: (v) => setState(() => interval = v!),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -861,18 +928,20 @@ class SubscriptionsPage extends ConsumerWidget {
               onPressed: () => Navigator.pop(context),
               child: const Text('取消'),
             ),
-            TextButton(
+            ElevatedButton(
               onPressed: () {
-                final updated = sub.copyWith(
-                  name: nameController.text,
-                  url: urlController.text.trim(),
-                  autoUpdate: autoUpdate,
-                  updateInterval: interval,
-                );
-                ref
-                    .read(subscriptionProvider.notifier)
-                    .updateSubscriptionModel(updated);
-                Navigator.pop(context);
+                if (formKey.currentState?.validate() ?? false) {
+                  final updated = sub.copyWith(
+                    name: nameController.text.trim(),
+                    url: urlController.text.trim(),
+                    autoUpdate: autoUpdate,
+                    updateInterval: interval,
+                  );
+                  ref
+                      .read(subscriptionProvider.notifier)
+                      .updateSubscriptionModel(updated);
+                  Navigator.pop(context);
+                }
               },
               child: const Text('保存'),
             ),
