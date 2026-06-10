@@ -56,29 +56,79 @@ assets/windows/         # 核心二进制资源 (xray-core.exe, wintun.dll)
 
 ---
 
-## 🚀 开发与编译
+## 🚀 编译与构建指南
 
-### 编译环境要求
-- **Flutter SDK**：3.22.0 或更高版本
-- **Visual Studio**：2022 (需安装 "使用 C++ 的桌面开发" 工作负载)
-- **Go**：1.22+ (若需自行编译 `go_core`)
-- **Inno Setup**：(可选，用于生成安装包)
+本节详细介绍如何从零开始编译底层内核以及构建 Windows 客户端。
 
-### 快速构建
-1. **获取代码**：
+### 1. 环境准备
+
+#### 基础环境
+- **Flutter SDK**：3.22.0 或更高版本 ([下载地址](https://docs.flutter.dev/release/archive?tab=windows))
+- **Visual Studio 2022**：必须安装 **“使用 C++ 的桌面开发”** 工作负载，以支持 Windows 原生插件编译。
+- **Go 环境**：1.22+ (推荐 1.26.2)，用于编译 Xray 核心。建议配置 `GOPROXY=https://goproxy.cn,direct` 以加快依赖下载。
+
+#### 资源准备
+项目依赖一些二进制资源文件，通常位于 `assets/windows/` 目录下。若该目录为空，需手动准备或运行内核编译脚本生成。
+
+---
+
+### 2. 编译 Xray 核心 (内核越狱)
+
+本项目使用了经过“源码级手术”修改的 Xray 核心，以解除特定功能的限制（如 `allowInsecure` 硬拦截和时间校验）。
+
+#### 自动化编译步骤：
+1. 以管理员权限打开 **PowerShell**。
+2. 进入项目根目录。
+3. 执行编译脚本：
    ```powershell
-   git clone https://github.com/lightning-xf/lightning-proxy.git
-   cd lightning-proxy
+   .\build_windows_core.ps1
    ```
-2. **安装依赖**：
-   ```powershell
-   flutter pub get
-   ```
-3. **Release 编译**：
-   ```powershell
-   flutter build windows --release
-   ```
-   编译产物位于 `build/windows/x64/runner/Release/`。
+
+#### 脚本执行逻辑说明：
+- **源码拉取**：自动从 GitHub 拉取指定版本的 Xray 源码。
+- **本地化 (Vendor)**：执行 `go mod vendor` 将依赖本地化，确保编译稳定性。
+- **源码修改**：
+  - **拆除时间炸弹**：物理替换所有 `time.Now().After` 校验，防止内核因系统时间不准而失效。
+  - **切除安全拦截**：定位并替换 `transport_internet.go` 中的安全校验块，允许用户在配置中强制开启 `allowInsecure`。
+- **产物生成**：编译生成的 `xray-core.exe` 会自动移动到 `assets/windows/` 目录供 Flutter 调用。
+
+---
+
+### 3. 构建 Windows 客户端
+
+#### 开发模式运行
+```powershell
+flutter pub get
+flutter run -d windows
+```
+
+#### 全量 Release 构建
+执行以下命令生成经过高度优化的 Release 版本：
+```powershell
+# 1. 清理旧缓存（重要：防止幽灵缓存干扰）
+flutter clean
+
+# 2. 获取依赖
+flutter pub get
+
+# 3. 执行 Release 编译
+flutter build windows --release
+```
+
+#### 构建产物说明
+编译完成后，产物位于 `build\windows\x64\runner\Release\`：
+- **lightning.exe**：主程序。
+- **flutter_windows.dll / dartjni.dll**：核心运行库。
+- **data/**：包含内核文件 (`xray-core.exe`, `wintun.dll`) 及分流规则。
+
+---
+
+### 4. 生成安装程序 (可选)
+
+本项目提供了 **Inno Setup** 脚本用于生成单文件安装包：
+1. 安装 [Inno Setup 6](https://jrsoftware.org/isdl.php)。
+2. 右键点击根目录下的 `build_installer.iss`，选择 **Compile**。
+3. 安装包将生成在 `installer_build/` 目录下。
 
 ---
 
