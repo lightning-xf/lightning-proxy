@@ -6,7 +6,7 @@
 AppId={{9F8E7D6C-5B4A-4D3E-BF21-C0B9A8F7E6D5}
 AppName=Lightning
 AppVersion=1.0.0
-AppPublisher=Lightning Team
+AppPublisher=https://lightning-vps.com
 DefaultDirName={autopf}\LightningVPN
 DefaultGroupName=Lightning
 AllowNoIcons=yes
@@ -17,7 +17,7 @@ ArchitecturesInstallIn64BitMode=x64
 AppMutex=lightning_vpn_instance_lock
 ; 本地化设置
 LanguageDetectionMethod=uilanguage
-ShowLanguageDialog=yes
+ShowLanguageDialog=no
 ; 输出配置
 OutputDir=installer_build
 OutputBaseFilename=LightningVPN_Setup_v1.0.0
@@ -25,6 +25,10 @@ Compression=lzma2/ultra64
 InternalCompressLevel=ultra
 SolidCompression=yes
 WizardStyle=modern
+; 极简安装流程优化
+DisableWelcomePage=yes
+DisableDirPage=no
+DisableProgramGroupPage=yes
 ; 元数据
 VersionInfoVersion=1.0.0
 VersionInfoDescription=Lightning VPN Installer
@@ -54,12 +58,17 @@ Source: "assets\windows\xray-core.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "assets\windows\geoip.dat"; DestDir: "{app}"; Flags: ignoreversion
 Source: "assets\windows\geosite.dat"; DestDir: "{app}"; Flags: ignoreversion
 
+; 🚀 系统运行库 (可选：如果需要静默安装，请确保目录下有此文件)
+Source: "installer_assets\VC_redist.x64.exe"; DestDir: "{tmp}"; Flags: ignoreversion deleteafterinstall nocompression; Check: not VC2015RedistInstalled
+
 [Icons]
 Name: "{group}\Lightning"; Filename: "{app}\lightning.exe"
 Name: "{group}\{cm:UninstallProgram,Lightning}"; Filename: "{uninstallexe}"
 Name: "{commondesktop}\Lightning"; Filename: "{app}\lightning.exe"; Tasks: desktopicon
 
 [Run]
+; 安装系统运行库 (如果缺失)
+Filename: "{tmp}\VC_redist.x64.exe"; Parameters: "/quiet /norestart"; Check: not VC2015RedistInstalled; StatusMsg: "正在安装系统运行库 (VC++ 2015-2022)，请稍候..."
 ; 安装完成后自动启动
 Filename: "{app}\lightning.exe"; Description: "{cm:LaunchProgram,Lightning}"; Flags: nowait postinstall skipifsilent
 
@@ -86,31 +95,9 @@ begin
     Result := RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\WOW6432Node\Microsoft\VisualStudio\14.0\VC\Runtimes\x64', 'Version', Version);
 end;
 
-// 🛡️ 环境检查：检测 WebView2 Runtime
-function WebView2Installed(): Boolean;
-var
-  Version: String;
-begin
-  Result := RegQueryStringValue(HKEY_LOCAL_MACHINE, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8ABB-8224A2067880}', 'pv', Version);
-  if not Result then
-    Result := RegQueryStringValue(HKEY_CURRENT_USER, 'Software\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8ABB-8224A2067880}', 'pv', Version);
-end;
-
 function InitializeSetup(): Boolean;
 begin
   Result := True;
-  
-  if not VC2015RedistInstalled() then
-  begin
-    if MsgBox('检测到您的系统缺少必要的 Visual C++ 运行库，程序可能无法正常启动。' #13#10 '建议安装后再继续，是否仍然坚持安装？', mbConfirmation, MB_YESNO) = IDNO then
-      Result := False;
-  end;
-
-  if Result and not WebView2Installed() then
-  begin
-    if MsgBox('检测到您的系统缺少 WebView2 Runtime，部分功能（如内建网页显示）可能受限。' #13#10 '是否继续安装？', mbConfirmation, MB_YESNO) = IDNO then
-      Result := False;
-  end;
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

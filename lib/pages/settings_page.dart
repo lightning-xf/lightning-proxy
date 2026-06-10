@@ -19,6 +19,7 @@ import 'package:lightning/widgets/uwp_exemption_dialog.dart';
 import 'package:lightning/widgets/animated_logo.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 class VpnSettings {
   final int socksPort;
@@ -1697,7 +1698,10 @@ class SettingsPage extends ConsumerWidget {
     );
   }
 
-  void _showAboutDialog(BuildContext context, S s) {
+  Future<void> _showAboutDialog(BuildContext context, S s) async {
+    final packageInfo = await PackageInfo.fromPlatform();
+    if (!context.mounted) return;
+    
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -1727,7 +1731,7 @@ class SettingsPage extends ConsumerWidget {
                         ),
                       ),
                       Text(
-                        '版本：16.9.15',
+                        '版本：${packageInfo.version}',
                         style: TextStyle(
                           color: Colors.grey.shade600,
                           fontSize: 13,

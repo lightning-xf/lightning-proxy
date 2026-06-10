@@ -58,3 +58,7 @@ go_core/pkg/
 *.jar
 !android/app/libs/*.aar
 !android/app/libs/*.jar
+
+# Installer
+installer_build/
+installer_assets/*.exe
