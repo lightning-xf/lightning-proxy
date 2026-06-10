@@ -1,0 +1,27 @@
+{
+  "buildFiles": [
+    "D:\\zhuomian\\lightning-windows\\plugins\\jni\\src\\CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "D:\\SDK\\cmake\\3.22.1\\bin\\ninja.exe",
+      "-C",
+      "D:\\zhuomian\\lightning-windows\\plugins\\jni\\android\\.cxx\\RelWithDebInfo\\3rp5t3if\\x86",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "D:\\SDK\\cmake\\3.22.1\\bin\\ninja.exe",
+    "-C",
+    "D:\\zhuomian\\lightning-windows\\plugins\\jni\\android\\.cxx\\RelWithDebInfo\\3rp5t3if\\x86",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {
+    "jni::@6890427a1f51a3e7e1df": {
+      "artifactName": "jni",
+      "abi": "x86",
+      "output": "D:\\zhuomian\\lightning-windows\\plugins\\jni\\android\\build\\intermediates\\cxx\\RelWithDebInfo\\3rp5t3if\\obj\\x86\\libdartjni.so",
+      "runtimeFiles": []
+    }
+  }
+}

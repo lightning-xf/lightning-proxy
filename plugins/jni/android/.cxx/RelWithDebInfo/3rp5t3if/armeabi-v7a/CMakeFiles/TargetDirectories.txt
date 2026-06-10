@@ -1,0 +1,3 @@
+D:/zhuomian/lightning-windows/plugins/jni/android/.cxx/RelWithDebInfo/3rp5t3if/armeabi-v7a/CMakeFiles/jni.dir
+D:/zhuomian/lightning-windows/plugins/jni/android/.cxx/RelWithDebInfo/3rp5t3if/armeabi-v7a/CMakeFiles/edit_cache.dir
+D:/zhuomian/lightning-windows/plugins/jni/android/.cxx/RelWithDebInfo/3rp5t3if/armeabi-v7a/CMakeFiles/rebuild_cache.dir

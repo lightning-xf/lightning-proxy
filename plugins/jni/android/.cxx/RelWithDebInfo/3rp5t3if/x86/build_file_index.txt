@@ -1,0 +1,1 @@
+D:\zhuomian\lightning-windows\plugins\jni\src\CMakeLists.txt

@@ -1,0 +1,1 @@
+D:\zhuomian\lightning-windows\plugins\jni\android\build\intermediates\cxx\RelWithDebInfo\3rp5t3if\obj\arm64-v8a
