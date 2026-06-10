@@ -9,6 +9,22 @@ Lightning Proxy 是一款专为 Windows 平台打造的、基于 Flutter 与 Xra
 
 ---
 
+## 💻 系统要求
+
+为了确保最佳的使用体验和功能完整性，您的系统需满足以下要求：
+
+- **操作系统**：
+  - **Windows 11** (所有版本)
+  - **Windows 10** (版本 1607 / Build 14393 或更高)
+- **架构**：仅支持 **x64 (64位)** 处理器。
+- **运行权限**：
+  - 正常运行需要 **管理员权限**（用于管理系统代理设置、安装/启动 Wintun 驱动以及修改路由表）。
+- **软件依赖**：
+  - **WebView2 Runtime** (通常 Windows 10/11 已内置，若缺失程序会自动提示安装)。
+  - **Microsoft Visual C++ Redistributable** (Release 版本已包含必要的运行库)。
+
+---
+
 ## ✨ 核心特性
 
 ### 1. 极致功耗管理 (Zero-Footprint Architecture)
