@@ -139,12 +139,22 @@ flutter build windows --release
 
 ---
 
-### 4. 生成安装程序 (可选)
+### 4. 生成安装程序 (全自动)
 
-本项目提供了 **Inno Setup** 脚本用于生成单文件安装包：
-1. 安装 [Inno Setup 6](https://jrsoftware.org/isdl.php)。
-2. 右键点击根目录下的 `build_installer.iss`，选择 **Compile**。
-3. 安装包将生成在 `installer_build/` 目录下。
+为了确保环境完整性并简化流程，本项目提供了一键式打包脚本：
+
+1. **环境要求**：确保已安装 [Inno Setup 6](https://jrsoftware.org/isdl.php) 且其编译器 `ISCC.exe` 路径为 `B:\exe\Inno Setup 6\ISCC.exe`（或手动修改 `build_all.ps1` 中的路径）。
+2. **执行打包**：在 PowerShell 中执行：
+   ```powershell
+   .\build_all.ps1
+   ```
+
+**该脚本会自动完成以下动作：**
+- **依赖自检**：检测并自动从微软官网下载缺失的 VC++ 运行库。
+- **环境清理**：执行 `flutter clean` 确保无缓存干扰。
+- **编译封箱**：编译 Flutter Release 产物并调用 Inno Setup 生成最终安装包。
+
+安装包将生成在 `installer_build/` 目录下。
 
 ---
 
