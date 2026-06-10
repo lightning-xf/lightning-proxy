@@ -985,8 +985,7 @@ class _HomeContent extends ConsumerWidget {
 
     final selectedNode = selectedNodeRaw == null
         ? null
-        : (nodes.where((n) => n.id == selectedNodeRaw.id).firstOrNull ??
-            selectedNodeRaw);
+        : nodes.where((n) => n.id == selectedNodeRaw.id).firstOrNull;
     final theme = Theme.of(context);
     final bool isMobile = maxWidth < 720;
     final bool isLargeScreen = maxWidth > 900;

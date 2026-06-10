@@ -578,8 +578,21 @@ final nodeProvider = StateNotifierProvider<NodeNotifier, List<NodeModel>>((
 });
 
 class SelectedNodeNotifier extends StateNotifier<NodeModel?> {
-  SelectedNodeNotifier() : super(null) {
+  final Ref _ref;
+  SelectedNodeNotifier(this._ref) : super(null) {
     _loadSelection();
+    _listenToNodeChanges();
+  }
+
+  void _listenToNodeChanges() {
+    _ref.listen<List<NodeModel>>(nodeProvider, (previous, next) {
+      if (state != null) {
+        final exists = next.any((n) => n.id == state!.id);
+        if (!exists) {
+          setNode(null);
+        }
+      }
+    });
   }
 
   Future<void> _loadSelection() async {
@@ -587,7 +600,14 @@ class SelectedNodeNotifier extends StateNotifier<NodeModel?> {
     final nodeJson = prefs.getString('selected_node');
     if (nodeJson != null) {
       try {
-        state = NodeModel.fromJson(jsonDecode(nodeJson));
+        final candidate = NodeModel.fromJson(jsonDecode(nodeJson));
+        final nodes = _ref.read(nodeProvider);
+        final exists = nodes.any((n) => n.id == candidate.id);
+        if (exists) {
+          state = candidate;
+        } else {
+          await prefs.remove('selected_node');
+        }
       } catch (_) {}
     }
   }
@@ -605,5 +625,5 @@ class SelectedNodeNotifier extends StateNotifier<NodeModel?> {
 
 final selectedNodeProvider =
     StateNotifierProvider<SelectedNodeNotifier, NodeModel?>((ref) {
-  return SelectedNodeNotifier();
+  return SelectedNodeNotifier(ref);
 });
