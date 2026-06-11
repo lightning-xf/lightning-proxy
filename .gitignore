@@ -1,0 +1,8 @@
+# 排除源代码目录
+android/
+windows/
+
+# 其他常见忽略文件
+.DS_Store
+Thumbs.db
+*.tmp
