@@ -16,10 +16,12 @@ android {
         versionCode = flutter.versionCode
         versionName = flutter.versionName
 
+/*
         ndk {
             // [Optimization] 锁定目标架构，剔除冗余 ABI
             abiFilters.addAll(listOf("arm64-v8a", "armeabi-v7a", "x86_64"))
         }
+*/
 
         externalNativeBuild {
             cmake {

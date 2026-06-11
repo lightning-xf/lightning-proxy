@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:lightning/core/node_model.dart';
 import 'package:lightning/core/rule_model.dart';
 import 'package:lightning/core/vpn_provider.dart';
+import 'package:lightning/core/proxy_group_model.dart';
 
 class ConfigGenerator {
   static String generateConfig({
@@ -24,6 +25,10 @@ class ConfigGenerator {
     String domesticDns = '223.5.5.5, 223.6.6.6',
     bool enableIPv6 = true,
     String dnsHosts = '',
+    // Mux 高级参数
+    int muxConcurrency = 8,
+    bool muxPadding = true,
+    String muxProtocol = 'h2',
   }) {
     // [Fix] 彻底击穿枚举判定陷阱：使用模糊包含判定确保全局模式逻辑生效
     final modeStr = mode.toString().toLowerCase();
@@ -573,8 +578,11 @@ class ConfigGenerator {
   static Map<String, dynamic> _generateOutbound(
     NodeModel node,
     bool muxEnabled,
-    String tcpCongestion,
-  ) {
+    String tcpCongestion, {
+    int muxConcurrency = 8,
+    bool muxPadding = true,
+    String muxProtocol = 'h2',
+  }) {
     Map<String, dynamic> outbound;
     final protocol = node.protocol.toLowerCase();
 
@@ -659,7 +667,9 @@ class ConfigGenerator {
 
         outbound['mux'] = {
           "enabled": (isVision || isReality) ? false : true,
-          "concurrency": node.muxConcurrency ?? 8,
+          "concurrency": node.muxConcurrency ?? muxConcurrency,
+          "padding": muxPadding,
+          "protocol": muxProtocol,
         };
       }
     }
@@ -726,7 +736,9 @@ class ConfigGenerator {
           "serverName": node.sni ?? node.host ?? node.address,
           "alpn": ["h3"],
           if (node.pinSHA256 != null && node.pinSHA256!.isNotEmpty)
-            "pinnedPeerCertSha256": [node.pinSHA256],
+            "pinnedPeerCertSha256": [node.pinSHA256]
+          else
+            "allowInsecure": true,
         },
         if (query['obfs'] != null)
           "udpmasks": [
@@ -1089,5 +1101,390 @@ class ConfigGenerator {
     }
 
     return settings;
+  }
+
+  // --- 代理组支持 ---
+
+  static String generateConfigWithGroups({
+    required List<NodeModel> allNodes,
+    required List<ProxyGroupModel> groups,
+    required String selectedGroupId,
+    required List<RuleModel> rules,
+    VpnMode mode = VpnMode.rule,
+    List<String>? proxyApps,
+    bool bypassLocal = true,
+    bool muxEnabled = false,
+    String tcpCongestion = 'bbr',
+    bool allowLan = false,
+    bool isTest = false,
+    String logLevel = 'info',
+    int socksPort = 10808,
+    int httpPort = 10809,
+    String dns = '8.8.8.8, 1.1.1.1',
+    bool fakeDns = true,
+    String remoteDns = '1.1.1.1, 1.0.0.1',
+    String domesticDns = '223.5.5.5, 223.6.6.6',
+    bool enableIPv6 = true,
+    String dnsHosts = '',
+    // Mux 高级参数
+    int muxConcurrency = 8,
+    bool muxPadding = true,
+    String muxProtocol = 'h2',
+  }) {
+    final modeStr = mode.toString().toLowerCase();
+    final isGlobalMode = modeStr.contains('global');
+    final effectiveRules = isGlobalMode ? <RuleModel>[] : rules;
+    final listenAddr = allowLan ? "0.0.0.0" : "127.0.0.1";
+
+    final nodeMap = {for (final n in allNodes) n.id: n};
+
+    // 构建所有出站代理
+    final outbounds = <Map<String, dynamic>>[
+      {"protocol": "freedom", "settings": {}, "tag": "api"},
+    ];
+
+    // 添加所有单个节点
+    for (final node in allNodes) {
+      outbounds.add({
+        ..._generateOutbound(
+          node,
+          muxEnabled,
+          tcpCongestion,
+          muxConcurrency: muxConcurrency,
+          muxPadding: muxPadding,
+          muxProtocol: muxProtocol,
+        ),
+        "tag": "node-${node.id}",
+      });
+    }
+
+    // 添加代理组
+    for (final group in groups.where((g) => !g.hidden)) {
+      outbounds.add(_buildProxyGroupOutbound(
+        group,
+        nodeMap,
+        muxEnabled,
+        tcpCongestion,
+        muxConcurrency: muxConcurrency,
+        muxPadding: muxPadding,
+        muxProtocol: muxProtocol,
+      ));
+    }
+
+    // 添加标准 outbounds
+    outbounds.addAll([
+      {
+        "tag": "direct",
+        "protocol": "freedom",
+        "settings": {"domainStrategy": "UseIPv4"},
+        "streamSettings": {
+          "sockopt": {"tcpCongestion": tcpCongestion, "mark": 255},
+        },
+      },
+      {
+        "tag": "block",
+        "protocol": "blackhole",
+        "settings": {"response": {"type": "none"}},
+      },
+      {"tag": "dns-out", "protocol": "dns", "settings": {}},
+    ]);
+
+    // 确定主出站 tag
+    final selectedGroup = groups.where((g) => g.id == selectedGroupId).firstOrNull;
+    final mainOutboundTag = selectedGroup != null
+        ? "group-${selectedGroup.id}"
+        : (allNodes.isNotEmpty ? "node-${allNodes.first.id}" : "direct");
+
+    final config = {
+      "log": {"loglevel": isTest ? "none" : logLevel},
+      "api": {
+        "tag": "api",
+        "services": ["StatsService"],
+      },
+      "stats": {},
+      "policy": {
+        "levels": {
+          "0": {
+            "statsUserUplink": true,
+            "statsUserDownlink": true,
+            "handshake": 4,
+            "connIdle": 300,
+            "uplinkOnly": 0,
+            "downlinkOnly": 0,
+            "bufferSize": 64,
+          },
+        },
+        "system": {
+          "statsInboundUplink": true,
+          "statsInboundDownlink": true,
+          "statsOutboundUplink": true,
+          "statsOutboundDownlink": true,
+        },
+      },
+      if (fakeDns && !isTest)
+        "fakedns": [
+          {"ipPool": "198.18.0.0/15", "poolSize": 65535},
+        ],
+      "dns": {
+        "hosts": _buildDnsHosts(dnsHosts),
+        "servers": [],
+        "queryStrategy": "UseIPv4",
+        "domainStrategy": "UseIPv4",
+        "tag": "dns-out",
+      },
+      "inbounds": [
+        {
+          "listen": "127.0.0.1",
+          "port": 10085,
+          "protocol": "dokodemo-door",
+          "settings": {"address": "127.0.0.1"},
+          "tag": "api",
+        },
+        if (!isTest)
+          {
+            "tag": "tun-in",
+            "protocol": "tun",
+            "settings": {
+              "name": "lightning-tun",
+              "mtu": 1500,
+              "userLevel": 0,
+              "stack": "gvisor",
+              "network": "tcp,udp",
+              "sniffing": {
+                "enabled": true,
+                "destOverride": ["http", "tls", "quic"],
+                "metadataOnly": false,
+              },
+              if (fakeDns) "fakeDns": true,
+            },
+          },
+        if (!isTest) ...[
+          {
+            "tag": "socks-in",
+            "protocol": "socks",
+            "listen": listenAddr,
+            "port": socksPort,
+            "settings": {"auth": "noauth", "udp": true, "userLevel": 0},
+            "sniffing": {
+              "enabled": true,
+              "destOverride": ["http", "tls", "quic"],
+              "metadataOnly": false,
+            },
+          },
+          {
+            "tag": "http-in",
+            "protocol": "http",
+            "listen": listenAddr,
+            "port": httpPort,
+            "settings": {"userLevel": 0},
+            "sniffing": {
+              "enabled": true,
+              "destOverride": ["http", "tls", "quic"],
+              "metadataOnly": false,
+            },
+          },
+        ],
+      ],
+      "outbounds": outbounds,
+      "routing": {
+        "domainStrategy": "UseIPv4",
+        "rules": _buildRoutingRulesWithGroups(
+          effectiveRules,
+          bypassLocal,
+          mode,
+          isTest,
+          mainOutboundTag,
+        ),
+      },
+    };
+
+    return const JsonEncoder.withIndent('  ').convert(config);
+  }
+
+  static Map<String, dynamic> _buildProxyGroupOutbound(
+    ProxyGroupModel group,
+    Map<String, NodeModel> nodeMap,
+    bool muxEnabled,
+    String tcpCongestion, {
+    int muxConcurrency = 8,
+    bool muxPadding = true,
+    String muxProtocol = 'h2',
+  }) {
+    final validProxies = group.proxies.where((id) => nodeMap.containsKey(id)).toList();
+
+    switch (group.type) {
+      case ProxyGroupType.select:
+        return {
+          "tag": "group-${group.id}",
+          "protocol": "selector",
+          "settings": {
+            "outbounds": validProxies.map((id) => "node-$id").toList(),
+          },
+        };
+      case ProxyGroupType.urlTest:
+        return {
+          "tag": "group-${group.id}",
+          "protocol": "urltest",
+          "settings": {
+            "outbounds": validProxies.map((id) => "node-$id").toList(),
+            "url": group.url ?? "http://www.gstatic.com/generate_204",
+            "interval": (group.interval ?? 300) * 1000,
+            "tolerance": group.tolerance ?? 150,
+          },
+        };
+      case ProxyGroupType.fallback:
+        return {
+          "tag": "group-${group.id}",
+          "protocol": "fallback",
+          "settings": {
+            "outbounds": validProxies.map((id) => "node-$id").toList(),
+            "url": group.url ?? "http://www.gstatic.com/generate_204",
+            "interval": (group.interval ?? 300) * 1000,
+          },
+        };
+      case ProxyGroupType.loadBalance:
+        return {
+          "tag": "group-${group.id}",
+          "protocol": "loadbalance",
+          "settings": {
+            "outbounds": validProxies.map((id) => "node-$id").toList(),
+            "strategy": group.strategy ?? "round-robin",
+          },
+        };
+      case ProxyGroupType.relay:
+        final chainOutbounds = <Map<String, dynamic>>[];
+        for (var i = 0; i < validProxies.length; i++) {
+          final proxyId = validProxies[i];
+          chainOutbounds.add({
+            "tag": "relay-$proxyId",
+            ..._generateOutbound(
+              nodeMap[proxyId]!,
+              muxEnabled,
+              tcpCongestion,
+              muxConcurrency: muxConcurrency,
+              muxPadding: muxPadding,
+              muxProtocol: muxProtocol,
+            ),
+          });
+        }
+        return {
+          "tag": "group-${group.id}",
+          "protocol": "relay",
+          "settings": {
+            "outbounds": validProxies.map((id) => "relay-$id").toList(),
+          },
+        };
+      default:
+        return {
+          "tag": "group-${group.id}",
+          "protocol": "selector",
+          "settings": {
+            "outbounds": validProxies.map((id) => "node-$id").toList(),
+          },
+        };
+    }
+  }
+
+  static List<Map<String, dynamic>> _buildRoutingRulesWithGroups(
+    List<RuleModel> rules,
+    bool bypassLocal,
+    VpnMode mode,
+    bool isTest,
+    String mainOutboundTag,
+  ) {
+    final routingRules = <Map<String, dynamic>>[
+      {
+        "inboundTag": ["api"],
+        "outboundTag": "api",
+        "type": "field",
+      },
+      {
+        "inboundTag": ["tun-in"],
+        "outboundTag": "dns-out",
+        "port": "53",
+        "type": "field",
+      },
+    ];
+
+    final modeString = mode.toString().toLowerCase();
+    final isGlobal = modeString.contains('global');
+
+    if (isGlobal) {
+      routingRules.addAll([
+        {"type": "field", "port": "53", "outboundTag": mainOutboundTag},
+        {"type": "field", "network": "tcp,udp", "outboundTag": mainOutboundTag},
+      ]);
+    } else {
+      if (!isTest) {
+        routingRules.add({
+          "ip": ["223.5.5.5", "114.114.114.114"],
+          "port": "53",
+          "network": "udp",
+          "outboundTag": "direct",
+          "type": "field",
+        });
+      }
+
+      // 添加用户规则
+      for (final rule in rules.where((r) => r.enabled)) {
+        final Map<String, dynamic> ruleMap = {
+          "type": "field",
+          "outboundTag": rule.outboundTag == "proxy" ? mainOutboundTag : rule.outboundTag,
+        };
+        if (rule.domain != null && rule.domain!.isNotEmpty) {
+          ruleMap["domain"] = rule.domain;
+        }
+        if (rule.ip != null && rule.ip!.isNotEmpty) {
+          ruleMap["ip"] = rule.ip;
+        }
+        if (rule.port != null && rule.port!.isNotEmpty) {
+          ruleMap["port"] = rule.port!.join(',');
+        }
+        if (rule.network != null && rule.network!.isNotEmpty) {
+          ruleMap["network"] = rule.network!.join(',');
+        }
+        routingRules.add(ruleMap);
+      }
+
+      // 默认直连规则
+      routingRules.addAll([
+        {
+          "type": "field",
+          "ip": ["geoip:private", "192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"],
+          "outboundTag": "direct",
+        },
+        {
+          "type": "field",
+          "domain": ["geosite:private"],
+          "outboundTag": "direct",
+        },
+        {
+          "ip": ["223.5.5.5", "223.6.6.6", "119.29.29.29", "114.114.114.114"],
+          "port": "53",
+          "network": "udp",
+          "outboundTag": "direct",
+          "type": "field",
+        },
+        {
+          "type": "field",
+          "ip": ["geoip:cn"],
+          "outboundTag": "direct",
+        },
+        {
+          "type": "field",
+          "domain": ["geosite:cn"],
+          "outboundTag": "direct",
+        },
+      ]);
+
+      // 默认使用主出站
+      routingRules.add({
+        "type": "field",
+        "network": "tcp,udp",
+        "outboundTag": mainOutboundTag,
+      });
+    }
+
+    return routingRules;
   }
 }

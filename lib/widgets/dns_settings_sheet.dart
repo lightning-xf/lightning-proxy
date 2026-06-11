@@ -52,12 +52,18 @@ class _DnsSettingsSheetState extends ConsumerState<DnsSettingsSheet> {
     {'label': 'Google', 'value': '8.8.8.8, 8.8.4.4'},
     {'label': 'Quad9', 'value': '9.9.9.9, 149.112.112.112'},
     {'label': 'OpenDNS', 'value': '208.67.222.222, 208.67.220.220'},
+    {'label': 'CleanBrowsing', 'value': '185.228.168.9, 185.228.169.9'},
+    {'label': 'Cloudflare Family', 'value': '1.1.1.3, 1.0.0.3'},
+    {'label': 'OpenDNS Family', 'value': '208.67.222.123, 208.67.220.123'},
   ];
 
   static const _presetDomesticDns = [
     {'label': '阿里 DNS', 'value': '223.5.5.5, 223.6.6.6'},
-    {'label': '腾讯 DNS', 'value': '1.12.12.12, 120.53.53.53'},
+    {'label': '腾讯 DNS', 'value': '119.29.29.29, 182.254.116.116'},
     {'label': '百度 DNS', 'value': '180.76.76.76, 114.114.114.114'},
+    {'label': '360 DNS', 'value': '101.226.4.6, 218.30.118.6'},
+    {'label': '114 DNS', 'value': '114.114.114.114, 114.114.115.115'},
+    {'label': 'DNSPod', 'value': '119.29.29.29, 182.254.116.116'},
   ];
 
   @override
@@ -87,35 +93,93 @@ class _DnsSettingsSheetState extends ConsumerState<DnsSettingsSheet> {
     final s = S.of(context, ref);
     final presets = isRemote ? _presetRemoteDns : _presetDomesticDns;
     final controller = isRemote ? _remoteDnsController : _domesticDnsController;
+    final theme = Theme.of(context);
 
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         title: Text(
           s.get(isRemote ? 'remote_dns_preset' : 'domestic_dns_preset'),
+          style: const TextStyle(fontWeight: FontWeight.w900),
         ),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: presets.map((preset) {
-            return ListTile(
-              title: Text(preset['label']!),
-              subtitle: Text(
-                preset['value']!,
-                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
-              ),
-              onTap: () {
-                controller.text = preset['value']!;
-                Navigator.pop(context);
-                setState(() {});
-              },
-            );
-          }).toList(),
+        content: Container(
+          width: double.maxFinite,
+          constraints: const BoxConstraints(maxHeight: 400),
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: presets.length,
+            itemBuilder: (context, index) {
+              final preset = presets[index];
+              return Container(
+                margin: const EdgeInsets.only(bottom: 8),
+                decoration: BoxDecoration(
+                  color: theme.cardTheme.color,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: Colors.white.withOpacity(0.04)),
+                ),
+                child: Material(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(16),
+                  clipBehavior: Clip.antiAlias,
+                  child: ListTile(
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 4,
+                    ),
+                    leading: Container(
+                      width: 40,
+                      height: 40,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primary.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.dns_rounded,
+                        color: theme.colorScheme.primary,
+                        size: 20,
+                      ),
+                    ),
+                    title: Text(
+                      preset['label']!,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                    subtitle: Padding(
+                      padding: const EdgeInsets.only(top: 4),
+                      child: Text(
+                        preset['value']!,
+                        style: TextStyle(
+                          color: Colors.grey.shade600,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      controller.text = preset['value']!;
+                      Navigator.pop(context);
+                      setState(() {});
+                    },
+                  ),
+                ),
+              );
+            },
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text(s.get('cancel')),
+            child: Text(
+              s.get('cancel'),
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: Colors.grey.shade600,
+              ),
+            ),
           ),
         ],
       ),

@@ -50,11 +50,24 @@ flutter_*.log
 xray.zip
 config.json
 .gradle-home/
+.trae/
+go.work.sum
+find_error.dart
+XRAY_BYPASS_GUIDE.md
 
 # Go related
 go_core/bin/
 go_core/pkg/
+go_core/local_xray_core/
+go_core/local_xray_old_*/
 *.aar
 *.jar
 !android/app/libs/*.aar
 !android/app/libs/*.jar
+
+# Android Gradle
+android/.gradle/
+android/build/
+android/app/build/
+**/plugins/jni*/android/.cxx/
+**/plugins/jni*/android/build/

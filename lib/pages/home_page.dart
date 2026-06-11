@@ -10,10 +10,13 @@ import 'package:lightning/core/localization_provider.dart';
 import 'package:lightning/core/vpn_provider.dart';
 import 'package:lightning/core/node_provider.dart';
 import 'package:lightning/core/node_model.dart';
+import 'package:lightning/core/proxy_group_model.dart';
+import 'package:lightning/core/proxy_group_provider.dart';
 import 'package:lightning/pages/nodes_page.dart';
 import 'package:lightning/pages/subscriptions_page.dart';
 import 'package:lightning/pages/logs_page.dart';
 import 'package:lightning/pages/settings_page.dart';
+import 'package:lightning/pages/proxy_group_page.dart';
 
 class PageIndexState {
   final int index;
@@ -649,7 +652,7 @@ class _HomePageState extends ConsumerState<HomePage>
   }
 }
 
-class _HomeContent extends ConsumerWidget {
+class _HomeContent extends ConsumerStatefulWidget {
   final VpnState vpnState;
   final double maxWidth;
   const _HomeContent({
@@ -658,6 +661,11 @@ class _HomeContent extends ConsumerWidget {
     required this.maxWidth,
   });
 
+  @override
+  ConsumerState<_HomeContent> createState() => _HomeContentState();
+}
+
+class _HomeContentState extends ConsumerState<_HomeContent> {
   String _formatDuration(Duration d) {
     String twoDigits(int n) => n.toString().padLeft(2, "0");
     String twoDigitMinutes = twoDigits(d.inMinutes.remainder(60));
@@ -669,10 +677,14 @@ class _HomeContent extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final s = S.of(context, ref);
     final selectedNodeRaw = ref.watch(selectedNodeProvider);
     final nodes = ref.watch(nodeProvider);
+    final proxyGroups = ref.watch(proxyGroupProvider);
+    final selectedGroup = ref.watch(selectedGroupProvider);
+    final vpnSettings = ref.watch(vpnSettingsProvider);
+    final useProxyGroup = vpnSettings.useProxyGroup;
 
     ref.listen<VpnState>(vpnProvider, (previous, next) {
       if (next.lastError != null && next.lastError != previous?.lastError) {
@@ -685,8 +697,8 @@ class _HomeContent extends ConsumerWidget {
         : (nodes.where((n) => n.id == selectedNodeRaw.id).firstOrNull ??
               selectedNodeRaw);
     final theme = Theme.of(context);
-    final bool isMobile = maxWidth < 720;
-    final bool isLargeScreen = maxWidth > 900;
+    final bool isMobile = widget.maxWidth < 720;
+    final bool isLargeScreen = widget.maxWidth > 900;
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -718,9 +730,9 @@ class _HomeContent extends ConsumerWidget {
       body: SingleChildScrollView(
         physics: const BouncingScrollPhysics(),
         padding: EdgeInsets.fromLTRB(
-          maxWidth > 1200 ? 40 : 16,
+          widget.maxWidth > 1200 ? 40 : 16,
           isMobile ? 8 : 20,
-          maxWidth > 1200 ? 40 : 16,
+          widget.maxWidth > 1200 ? 40 : 16,
           24,
         ),
         child: Center(
@@ -729,7 +741,7 @@ class _HomeContent extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _buildMainStatusCard(context, ref, selectedNode),
+                _buildMainStatusCard(context, ref, selectedNode, selectedGroup, useProxyGroup),
                 const SizedBox(height: 20),
                 if (isLargeScreen)
                   Row(
@@ -751,8 +763,10 @@ class _HomeContent extends ConsumerWidget {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            _buildSectionHeader(theme, '节点隧道'),
-                            _buildCurrentNodeCard(context, ref, selectedNode),
+                            _buildSectionHeader(theme, useProxyGroup ? '代理组' : '节点隧道'),
+                            useProxyGroup
+                                ? _buildCurrentGroupCard(context, ref, selectedGroup)
+                                : _buildCurrentNodeCard(context, ref, selectedNode),
                           ],
                         ),
                       ),
@@ -762,8 +776,10 @@ class _HomeContent extends ConsumerWidget {
                   _buildSectionHeader(theme, '实时数据流'),
                   _buildHorizontalDataPanel(context, ref),
                   const SizedBox(height: 20),
-                  _buildSectionHeader(theme, '节点隧道'),
-                  _buildCurrentNodeCard(context, ref, selectedNode),
+                  _buildSectionHeader(theme, useProxyGroup ? '代理组' : '节点隧道'),
+                  useProxyGroup
+                      ? _buildCurrentGroupCard(context, ref, selectedGroup)
+                      : _buildCurrentNodeCard(context, ref, selectedNode),
                 ],
                 const SizedBox(height: 20),
                 _buildSectionHeader(theme, s.get('rule_mode')),
@@ -802,10 +818,407 @@ class _HomeContent extends ConsumerWidget {
     );
   }
 
+  Widget _buildCurrentGroupCard(
+    BuildContext context,
+    WidgetRef ref,
+    ProxyGroupModel? selectedGroup,
+  ) {
+    final theme = Theme.of(context);
+    final primaryColor = theme.colorScheme.primary;
+    final proxyGroups = ref.watch(proxyGroupProvider);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.cardTheme.color?.withOpacity(0.6),
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: Colors.white.withOpacity(0.05), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 5),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(24),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () {
+            HapticFeedback.mediumImpact();
+            _showGroupSelector(context, ref);
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                Container(
+                  width: 48,
+                  height: 48,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        primaryColor,
+                        primaryColor.withOpacity(0.8),
+                      ],
+                    ),
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [
+                      BoxShadow(
+                        color: primaryColor.withOpacity(0.3),
+                        blurRadius: 10,
+                        spreadRadius: 1,
+                      ),
+                    ],
+                  ),
+                  child: Icon(
+                    selectedGroup != null
+                        ? _getGroupTypeIcon(selectedGroup.type)
+                        : Icons.group_work,
+                    color: Colors.white,
+                    size: 24,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        selectedGroup?.name ?? '未选择代理组',
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 15,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: primaryColor.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Text(
+                              selectedGroup != null
+                                  ? _getGroupTypeName(selectedGroup.type)
+                                  : '无',
+                              style: TextStyle(
+                                fontSize: 9,
+                                fontWeight: FontWeight.w900,
+                                color: primaryColor,
+                              ),
+                            ),
+                          ),
+                          if (selectedGroup != null) ...[
+                            const SizedBox(width: 6),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 1,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.greenAccent.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: Text(
+                                '${selectedGroup.proxies.length} 节点',
+                                style: const TextStyle(
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w900,
+                                  color: Colors.greenAccent,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  color: theme.textTheme.bodySmall?.color?.withOpacity(0.2),
+                  size: 16,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showGroupSelector(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final primaryColor = theme.colorScheme.primary;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: theme.scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      isScrollControlled: true,
+      builder: (context) => Consumer(
+        builder: (context, ref, child) {
+          final proxyGroups = ref.watch(proxyGroupProvider);
+          final currentSelected = ref.watch(selectedGroupProvider);
+
+          return Container(
+            padding: const EdgeInsets.all(20),
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.6,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  '选择代理组',
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                Expanded(
+                  child: proxyGroups.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                Icons.group_work,
+                                size: 64,
+                                color: Colors.grey[600],
+                              ),
+                              const SizedBox(height: 16),
+                              Text(
+                                '暂无代理组',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  color: Colors.grey[600],
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                '前往设置页面创建代理组',
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  color: Colors.grey[500],
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : ListView.separated(
+                          itemCount: proxyGroups.length + 1,
+                          separatorBuilder: (context, index) => Divider(
+                            color: Colors.white.withOpacity(0.05),
+                            height: 1,
+                          ),
+                          itemBuilder: (context, index) {
+                            if (index == 0) {
+                              final isSelected = currentSelected == null;
+                              return Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () {
+                                    ref
+                                        .read(selectedGroupProvider.notifier)
+                                        .setSelectedGroup(null);
+                                    Navigator.pop(context);
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 12,
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        Container(
+                                          width: 48,
+                                          height: 48,
+                                          decoration: BoxDecoration(
+                                            color: Colors.grey.shade800,
+                                            borderRadius:
+                                                BorderRadius.circular(16),
+                                          ),
+                                          child: const Icon(
+                                            Icons.not_interested,
+                                            color: Colors.white,
+                                            size: 24,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                '不使用代理组',
+                                                style: theme
+                                                    .textTheme.titleMedium
+                                                    ?.copyWith(
+                                                  fontWeight: FontWeight.w700,
+                                                ),
+                                              ),
+                                              Text(
+                                                '使用单个节点连接',
+                                                style: TextStyle(
+                                                  fontSize: 12,
+                                                  color: Colors.grey[500],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                        if (isSelected)
+                                          Icon(
+                                            Icons.check_circle,
+                                            color: primaryColor,
+                                            size: 24,
+                                          ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
+
+                            final group = proxyGroups[index - 1];
+                            final isSelected = currentSelected?.id == group.id;
+
+                            return Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                onTap: () {
+                                  ref
+                                      .read(selectedGroupProvider.notifier)
+                                      .setSelectedGroup(group);
+                                  Navigator.pop(context);
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 16,
+                                    vertical: 12,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 48,
+                                        height: 48,
+                                        decoration: BoxDecoration(
+                                          color: primaryColor.withOpacity(0.2),
+                                          borderRadius:
+                                              BorderRadius.circular(16),
+                                        ),
+                                        child: Icon(
+                                          _getGroupTypeIcon(group.type),
+                                          color: primaryColor,
+                                          size: 24,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              group.name,
+                                              style: theme
+                                                  .textTheme.titleMedium
+                                                  ?.copyWith(
+                                                fontWeight: FontWeight.w700,
+                                              ),
+                                            ),
+                                            Text(
+                                              '${_getGroupTypeName(group.type)} · ${group.proxies.length} 节点',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey[500],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (isSelected)
+                                        Icon(
+                                          Icons.check_circle,
+                                          color: primaryColor,
+                                          size: 24,
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  IconData _getGroupTypeIcon(ProxyGroupType type) {
+    switch (type) {
+      case ProxyGroupType.select:
+        return Icons.radio_button_checked;
+      case ProxyGroupType.urlTest:
+        return Icons.speed;
+      case ProxyGroupType.fallback:
+        return Icons.swap_horiz;
+      case ProxyGroupType.loadBalance:
+        return Icons.shuffle;
+      case ProxyGroupType.relay:
+        return Icons.link;
+    }
+  }
+
+  String _getGroupTypeName(ProxyGroupType type) {
+    switch (type) {
+      case ProxyGroupType.select:
+        return '手动选择';
+      case ProxyGroupType.urlTest:
+        return 'URL测试';
+      case ProxyGroupType.fallback:
+        return '故障转移';
+      case ProxyGroupType.loadBalance:
+        return '负载均衡';
+      case ProxyGroupType.relay:
+        return '代理链';
+    }
+  }
+
   Widget _buildMainStatusCard(
     BuildContext context,
     WidgetRef ref,
     NodeModel? selectedNode,
+    ProxyGroupModel? selectedGroup,
+    bool useProxyGroup,
   ) {
     final theme = Theme.of(context);
     final primaryColor = theme.colorScheme.primary;
@@ -956,7 +1369,7 @@ class _HomeContent extends ConsumerWidget {
                             const SizedBox(height: 1),
                             Text(
                               isRunning
-                                  ? '已成功启用加密隧道连接节点'
+                                  ? '已成功启用加密隧道连接'
                                   : (isStarting ? '正在初始化加密协议' : '点击右侧开关开启加速'),
                               style: TextStyle(
                                 fontSize: 11,
@@ -980,20 +1393,35 @@ class _HomeContent extends ConsumerWidget {
                           onChanged: (v) {
                             HapticFeedback.heavyImpact();
                             if (v) {
-                              if (selectedNode == null) {
-                                ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
-                                    content: Text('请先选择一个节点'),
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
-                                );
-                                return;
+                              if (useProxyGroup) {
+                                if (selectedGroup == null) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('请先选择一个代理组'),
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                  return;
+                                }
+                                ref
+                                    .read(vpnProvider.notifier)
+                                    .toggleVpn(group: selectedGroup);
+                              } else {
+                                if (selectedNode == null) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('请先选择一个节点'),
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                  return;
+                                }
+                                ref
+                                    .read(vpnProvider.notifier)
+                                    .toggleVpn(node: selectedNode);
                               }
-                              ref
-                                  .read(vpnProvider.notifier)
-                                  .toggleVpn(selectedNode);
                             } else {
-                              ref.read(vpnProvider.notifier).toggleVpn(null);
+                              ref.read(vpnProvider.notifier).toggleVpn();
                             }
                           },
                         ),

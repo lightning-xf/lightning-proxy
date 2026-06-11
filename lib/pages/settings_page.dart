@@ -10,6 +10,8 @@ import 'package:lightning/core/vpn_provider.dart';
 import 'package:lightning/main.dart';
 import 'package:lightning/pages/routing_page.dart';
 import 'package:lightning/pages/app_splitting_page.dart';
+import 'package:lightning/pages/proxy_group_page.dart';
+import 'package:lightning/pages/rule_set_page.dart';
 import 'package:lightning/widgets/dns_settings_sheet.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -36,6 +38,11 @@ class VpnSettings {
   final bool muxEnabled;
   final String tcpCongestion;
   final bool allowLan;
+  final bool useProxyGroup;
+  // Mux 高级参数
+  final int muxConcurrency;
+  final bool muxPadding;
+  final String muxProtocol;
 
   VpnSettings({
     this.socksPort = 10808,
@@ -59,6 +66,11 @@ class VpnSettings {
     this.muxEnabled = false,
     this.tcpCongestion = 'bbr',
     this.allowLan = false,
+    this.useProxyGroup = false,
+    // Mux 默认参数
+    this.muxConcurrency = 8,
+    this.muxPadding = true,
+    this.muxProtocol = 'h2',
   });
 
   VpnSettings copyWith({
@@ -83,6 +95,11 @@ class VpnSettings {
     bool? muxEnabled,
     String? tcpCongestion,
     bool? allowLan,
+    bool? useProxyGroup,
+    // Mux 参数
+    int? muxConcurrency,
+    bool? muxPadding,
+    String? muxProtocol,
   }) {
     return VpnSettings(
       socksPort: socksPort ?? this.socksPort,
@@ -106,6 +123,10 @@ class VpnSettings {
       muxEnabled: muxEnabled ?? this.muxEnabled,
       tcpCongestion: tcpCongestion ?? this.tcpCongestion,
       allowLan: allowLan ?? this.allowLan,
+      useProxyGroup: useProxyGroup ?? this.useProxyGroup,
+      muxConcurrency: muxConcurrency ?? this.muxConcurrency,
+      muxPadding: muxPadding ?? this.muxPadding,
+      muxProtocol: muxProtocol ?? this.muxProtocol,
     );
   }
 
@@ -131,6 +152,10 @@ class VpnSettings {
     'mux_enabled': muxEnabled,
     'tcp_congestion': tcpCongestion,
     'allow_lan': allowLan,
+    'use_proxy_group': useProxyGroup,
+    'mux_concurrency': muxConcurrency,
+    'mux_padding': muxPadding,
+    'mux_protocol': muxProtocol,
   };
 
   factory VpnSettings.fromJson(Map<String, dynamic> json) => VpnSettings(
@@ -155,6 +180,10 @@ class VpnSettings {
     muxEnabled: json['mux_enabled'] ?? false,
     tcpCongestion: json['tcp_congestion'] ?? 'bbr',
     allowLan: json['allow_lan'] ?? false,
+    useProxyGroup: json['use_proxy_group'] ?? false,
+    muxConcurrency: json['mux_concurrency'] ?? 8,
+    muxPadding: json['mux_padding'] ?? true,
+    muxProtocol: json['mux_protocol'] ?? 'h2',
   );
 }
 
@@ -239,7 +268,6 @@ class SettingsPage extends ConsumerWidget {
               physics: const BouncingScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
               children: [
-                _buildSection(context, s.get('ui_display'), [
                   _buildSettingTile(
                     context,
                     Icons.palette_rounded,
@@ -247,6 +275,7 @@ class SettingsPage extends ConsumerWidget {
                     themeMode == ThemeMode.dark
                         ? s.get('dark_mode')
                         : s.get('light_mode'),
+                    s,
                     onTap: () => ref.read(themeModeProvider.notifier).toggle(),
                   ),
                   _buildSettingTile(
@@ -254,69 +283,112 @@ class SettingsPage extends ConsumerWidget {
                     Icons.language_rounded,
                     s.get('language'),
                     locale.languageCode == 'zh' ? '简体中文' : 'English',
+                    s,
                     onTap: () => _showLanguagePicker(context, ref, s),
+                    helpText: s.get('language_help'),
                   ),
-                ]),
                 _buildSection(context, s.get('conn_automation'), [
                   _buildSwitchTile(
                     context,
                     Icons.power_settings_new_rounded,
                     s.get('auto_start'),
-                    '设备开机并解锁后自动连接',
+                    s.get('auto_start_desc'),
                     vpnSettings.autoStart,
                     (v) => ref
                         .read(vpnSettingsProvider.notifier)
                         .update(vpnSettings.copyWith(autoStart: v)),
+                    s,
                     helpText: s.get('auto_start_help'),
                   ),
                   _buildSwitchTile(
                     context,
                     Icons.verified_user_rounded,
                     s.get('keep_alive'),
-                    '前台服务常驻，防止进程被杀',
+                    s.get('keep_alive_desc'),
                     vpnSettings.keepAlive,
                     (v) => ref
                         .read(vpnSettingsProvider.notifier)
                         .update(vpnSettings.copyWith(keepAlive: v)),
+                    s,
                     helpText: s.get('keep_alive_help'),
                   ),
                   _buildSwitchTile(
                     context,
                     Icons.refresh_rounded,
                     s.get('auto_reconnect'),
-                    '网络切换时自动重连',
+                    s.get('auto_reconnect_desc'),
                     vpnSettings.autoReconnect,
                     (v) => ref
                         .read(vpnSettingsProvider.notifier)
                         .update(vpnSettings.copyWith(autoReconnect: v)),
+                    s,
                     helpText: s.get('auto_reconnect_help'),
                   ),
                   _buildSwitchTile(
                     context,
                     Icons.speed_rounded,
                     s.get('show_traffic'),
-                    '在状态栏显示实时网速',
+                    s.get('show_traffic_desc'),
                     vpnSettings.showTraffic,
                     (v) => ref
                         .read(vpnSettingsProvider.notifier)
                         .update(vpnSettings.copyWith(showTraffic: v)),
+                    s,
                     helpText: s.get('show_traffic_help'),
                   ),
                   _buildSettingTile(
                     context,
                     Icons.battery_saver_rounded,
                     s.get('ignore_battery'),
-                    '忽略电池优化以提高稳定性',
+                    s.get('ignore_battery_desc'),
+                    s,
                     onTap: () => ProxyChannel.requestBatteryOptimization(),
                     helpText: s.get('ignore_battery_help'),
                   ),
                 ]),
                 _buildSection(context, s.get('route_splitting'), [
+                  _buildSwitchTile(
+                    context,
+                    Icons.group_work_rounded,
+                    s.get('use_proxy_group'),
+                    s.get('use_proxy_group_desc'),
+                    vpnSettings.useProxyGroup,
+                    (v) => ref
+                        .read(vpnSettingsProvider.notifier)
+                        .update(vpnSettings.copyWith(useProxyGroup: v)),
+                    s,
+                    helpText: s.get('use_proxy_group_help'),
+                  ),
+                  _buildSettingTile(
+                    context,
+                    Icons.account_tree_rounded,
+                    s.get('proxy_group'),
+                    s.get('proxy_group_desc'),
+                    s,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const ProxyGroupPage()),
+                    ),
+                    helpText: s.get('proxy_group_help'),
+                  ),
+                  _buildSettingTile(
+                    context,
+                    Icons.list_alt_rounded,
+                    s.get('rule_sets'),
+                    s.get('create_rule_set_hint'),
+                    s,
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const RuleSetPage()),
+                    ),
+                    helpText: s.get('rule_set_help'),
+                  ),
                   _buildSettingTile(
                     context,
                     Icons.alt_route_rounded,
                     s.get('routing_strategy'),
-                    '当前模式: ${_getModeName(vpnSettings.mode, s)}',
+                    '${s.get('routing_strategy_desc')}${_getModeName(vpnSettings.mode, s)}',
+                    s,
                     onTap: () => _showModePicker(context, ref, vpnSettings, s),
                     helpText: s.get('routing_strategy_help'),
                   ),
@@ -324,33 +396,38 @@ class SettingsPage extends ConsumerWidget {
                     context,
                     Icons.rule_rounded,
                     s.get('rules_manage'),
-                    '自定义域名与 IP 路由规则',
+                    s.get('rules_manage_desc'),
+                    s,
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(builder: (_) => const RoutingPage()),
                     ),
+                    helpText: s.get('routing_rules_help'),
                   ),
                   _buildSettingTile(
                     context,
                     Icons.apps_rounded,
                     s.get('app_split'),
-                    '选择需要/不需要代理的应用',
+                    s.get('app_split_desc'),
+                    s,
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
                         builder: (_) => const AppSplittingPage(),
                       ),
                     ),
+                    helpText: s.get('app_splitting_help'),
                   ),
                   _buildSwitchTile(
                     context,
                     Icons.lan_rounded,
                     s.get('bypass_local'),
-                    '绕过局域网地址 (如 192.168.x.x)',
+                    s.get('bypass_local_desc'),
                     vpnSettings.bypassLocal,
                     (v) => ref
                         .read(vpnSettingsProvider.notifier)
                         .update(vpnSettings.copyWith(bypassLocal: v)),
+                    s,
                     helpText: s.get('bypass_local_help'),
                   ),
                   _buildAllowLanTile(context, ref, vpnSettings, s),
@@ -365,6 +442,7 @@ class SettingsPage extends ConsumerWidget {
                       loading: () => '...',
                       error: (_, __) => 'Xray-Core Unknown',
                     ),
+                    s,
                     onTap: null,
                     helpText: s.get('kernel_info_help'),
                   ),
@@ -379,24 +457,39 @@ class SettingsPage extends ConsumerWidget {
                         .update(
                           vpnSettings.copyWith(logLevel: v.toLowerCase()),
                         ),
+                    s,
                     helpText: s.get('log_level_help'),
                   ),
                   _buildSwitchTile(
                     context,
                     Icons.bolt_rounded,
                     s.get('mux_enabled'),
-                    '启用 TCP 多路复用 (Mux)',
+                    s.get('mux_enabled_desc'),
                     vpnSettings.muxEnabled,
                     (v) => ref
                         .read(vpnSettingsProvider.notifier)
                         .update(vpnSettings.copyWith(muxEnabled: v)),
+                    s,
                     helpText: s.get('mux_enabled_help'),
+                  ),
+                  // Mux 高级设置
+                  _buildSettingTile(
+                    context,
+                    Icons.tune_rounded,
+                    s.get('mux_advanced'),
+                    '${s.get('mux_concurrency')}: ${vpnSettings.muxConcurrency}, ${s.get('protocol')}: ${vpnSettings.muxProtocol.toUpperCase()}',
+                    s,
+                    onTap: vpnSettings.muxEnabled
+                        ? () => _showMuxAdvancedDialog(context, ref, vpnSettings, s)
+                        : null,
+                    helpText: s.get('mux_advanced_help'),
                   ),
                   _buildSettingTile(
                     context,
                     Icons.speed_rounded,
                     s.get('tcp_congestion'),
-                    '当前算法: ${vpnSettings.tcpCongestion.toUpperCase()}',
+                    '${s.get('tcp_congestion_desc')}${vpnSettings.tcpCongestion.toUpperCase()}',
+                    s,
                     onTap: () =>
                         _showTcpCongestionDialog(context, ref, vpnSettings, s),
                     helpText: s.get('tcp_congestion_help'),
@@ -406,8 +499,9 @@ class SettingsPage extends ConsumerWidget {
                   _buildSettingTile(
                     context,
                     Icons.settings_ethernet_rounded,
-                    '入站端口设置',
+                    s.get('inbound_ports'),
                     'Socks: ${vpnSettings.socksPort} | HTTP: ${vpnSettings.httpPort}',
+                    s,
                     onTap: () => _showPortsDialog(context, ref, vpnSettings, s),
                     helpText: s.get('inbound_ports_help'),
                   ),
@@ -416,8 +510,10 @@ class SettingsPage extends ConsumerWidget {
                     Icons.dns_rounded,
                     s.get('dns_settings'),
                     s.get('remote_dns'),
+                    s,
                     onTap: () =>
                         _showDnsSettingsSheet(context, ref, vpnSettings),
+                    helpText: s.get('dns_settings_help'),
                   ),
                 ]),
                 _buildSection(context, s.get('backup_restore'), [
@@ -425,15 +521,19 @@ class SettingsPage extends ConsumerWidget {
                     context,
                     Icons.cloud_sync_rounded,
                     s.get('backup_restore'),
-                    '导出当前配置到剪贴板或从剪贴板恢复',
+                    s.get('backup_restore_desc'),
+                    s,
                     onTap: () => _showBackupRestoreDialog(context, ref, s),
+                    helpText: s.get('backup_restore_help'),
                   ),
                   _buildSettingTile(
                     context,
                     Icons.info_rounded,
                     s.get('about'),
                     s.get('about_desc'),
+                    s,
                     onTap: () => _showAboutDialog(context, s),
+                    helpText: s.get('about_help'),
                   ),
                 ]),
               ],
@@ -450,7 +550,8 @@ class SettingsPage extends ConsumerWidget {
     String title,
     String currentDisplay,
     List<T> options,
-    ValueChanged<T> onChanged, {
+    ValueChanged<T> onChanged,
+    S s, {
     String? helpText,
     VoidCallback? helpTextOnTap,
   }) {
@@ -492,7 +593,7 @@ class SettingsPage extends ConsumerWidget {
                 GestureDetector(
                   onTap:
                       helpTextOnTap ??
-                      () => _showHelpDialog(context, title, helpText!),
+                      () => _showHelpDialog(context, title, helpText!, s),
                   child: Icon(
                     Icons.info_outline_rounded,
                     size: 14,
@@ -588,11 +689,12 @@ class SettingsPage extends ConsumerWidget {
       context,
       Icons.share_rounded,
       s.get('allow_lan'),
-      '允许局域网内的其他设备通过本机上网',
+      s.get('allow_lan_desc'),
       vpnSettings.allowLan,
       (v) => ref
           .read(vpnSettingsProvider.notifier)
           .update(vpnSettings.copyWith(allowLan: v)),
+      s,
       helpTextOnTap: () async {
         final ip = await _getLocalIp();
         final port = vpnSettings.httpPort.toString();
@@ -604,6 +706,7 @@ class SettingsPage extends ConsumerWidget {
                 .get('allow_lan_help')
                 .replaceAll('{ip}', ip)
                 .replaceAll('{port}', port),
+            s,
           );
         }
       },
@@ -646,7 +749,8 @@ class SettingsPage extends ConsumerWidget {
     BuildContext context,
     IconData icon,
     String title,
-    String subtitle, {
+    String subtitle,
+    S s, {
     VoidCallback? onTap,
     String? helpText,
     VoidCallback? helpTextOnTap,
@@ -695,7 +799,7 @@ class SettingsPage extends ConsumerWidget {
                 GestureDetector(
                   onTap:
                       helpTextOnTap ??
-                      () => _showHelpDialog(context, title, helpText!),
+                      () => _showHelpDialog(context, title, helpText!, s),
                   child: Icon(
                     Icons.info_outline_rounded,
                     size: 14,
@@ -736,7 +840,8 @@ class SettingsPage extends ConsumerWidget {
     String title,
     String subtitle,
     bool value,
-    ValueChanged<bool> onChanged, {
+    ValueChanged<bool> onChanged,
+    S s, {
     String? helpText,
     VoidCallback? helpTextOnTap,
   }) {
@@ -778,7 +883,7 @@ class SettingsPage extends ConsumerWidget {
                 GestureDetector(
                   onTap:
                       helpTextOnTap ??
-                      () => _showHelpDialog(context, title, helpText!),
+                      () => _showHelpDialog(context, title, helpText!, s),
                   child: Icon(
                     Icons.info_outline_rounded,
                     size: 14,
@@ -817,7 +922,7 @@ class SettingsPage extends ConsumerWidget {
     );
   }
 
-  void _showHelpDialog(BuildContext context, String title, String content) {
+  void _showHelpDialog(BuildContext context, String title, String content, S s) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -826,7 +931,7 @@ class SettingsPage extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('了解'),
+            child: Text(s.get('confirm')),
           ),
         ],
       ),
@@ -838,16 +943,16 @@ class SettingsPage extends ConsumerWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: Text(s.get('keep_alive_guide')),
-        content: const Column(
+        content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('为了确保代理服务在后台稳定运行，请确保完成以下设置：'),
-            SizedBox(height: 16),
-            Text('1. 允许应用自启动'),
-            Text('2. 关闭电池优化（设为不限制）'),
-            Text('3. 在多任务界面锁定 Lightning'),
-            Text('4. 允许后台常驻运行'),
+            Text(s.get('keep_alive_guide_content')),
+            const SizedBox(height: 16),
+            Text('1. ${s.get('keep_alive_step1')}'),
+            Text('2. ${s.get('keep_alive_step2')}'),
+            Text('3. ${s.get('keep_alive_step3')}'),
+            Text('4. ${s.get('keep_alive_step4')}'),
           ],
         ),
         actions: [
@@ -858,14 +963,7 @@ class SettingsPage extends ConsumerWidget {
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              // In a real app, this would use a native method to open settings
-              // For now, we show a success message
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('正在为您跳转到系统设置...'),
-                  behavior: SnackBarBehavior.floating,
-                ),
-              );
+              // ProxyChannel.openSystemSettings();
             },
             child: Text(s.get('confirm')),
           ),
@@ -946,29 +1044,42 @@ class SettingsPage extends ConsumerWidget {
   }
 
   void _showBackupRestoreDialog(BuildContext context, WidgetRef ref, S s) {
+    final theme = Theme.of(context);
+    
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text(s.get('backup_restore')),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+        ),
+        title: Text(
+          s.get('backup_restore'),
+          style: const TextStyle(fontWeight: FontWeight.w900),
+        ),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            ListTile(
-              leading: const Icon(Icons.file_upload_rounded),
-              title: const Text('备份配置 (导出)'),
-              subtitle: const Text('Backup Config (Export)'),
+            _buildBackupOptionCard(
+              context: context,
+              icon: Icons.cloud_upload_rounded,
+              title: s.get('backup_export'),
+              subtitle: 'Backup Config (Export)',
+              primaryColor: Colors.green,
               onTap: () async {
                 Navigator.pop(context);
-                await _exportConfig(context, ref);
+                await _exportConfig(context, ref, s);
               },
             ),
-            ListTile(
-              leading: const Icon(Icons.file_download_rounded),
-              title: const Text('恢复配置 (导入)'),
-              subtitle: const Text('Restore Config (Import)'),
+            const SizedBox(height: 12),
+            _buildBackupOptionCard(
+              context: context,
+              icon: Icons.cloud_download_rounded,
+              title: s.get('backup_import'),
+              subtitle: 'Restore Config (Import)',
+              primaryColor: theme.colorScheme.primary,
               onTap: () async {
                 Navigator.pop(context);
-                await _importConfig(context, ref);
+                await _importConfig(context, ref, s);
               },
             ),
           ],
@@ -976,14 +1087,95 @@ class SettingsPage extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: Text(s.get('cancel')),
+            child: Text(
+              s.get('cancel'),
+              style: TextStyle(color: Colors.grey[600]),
+            ),
           ),
         ],
       ),
     );
   }
 
-  Future<void> _exportConfig(BuildContext context, WidgetRef ref) async {
+  Widget _buildBackupOptionCard({
+    required BuildContext context,
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required Color primaryColor,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.cardTheme.color,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () {
+            HapticFeedback.lightImpact();
+            onTap();
+          },
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Icon(
+                    icon,
+                    color: primaryColor,
+                    size: 28,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey[500],
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(
+                  Icons.arrow_forward_ios_rounded,
+                  size: 18,
+                  color: Colors.grey[500],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _exportConfig(BuildContext context, WidgetRef ref, S s) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final Map<String, dynamic> config = {};
@@ -991,11 +1183,12 @@ class SettingsPage extends ConsumerWidget {
         config[key] = prefs.get(key);
       }
       final jsonStr = jsonEncode(config);
-      await Clipboard.setData(ClipboardData(text: jsonStr));
+      final encoded = base64Encode(utf8.encode(jsonStr));
+      await Clipboard.setData(ClipboardData(text: 'LIGHTNING_CONFIG:$encoded'));
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('配置已备份至剪贴板'),
+          SnackBar(
+            content: Text(s.get('backup_success')),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -1004,7 +1197,7 @@ class SettingsPage extends ConsumerWidget {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('备份失败: $e'),
+            content: Text(s.get('backup_fail').replaceAll('{error}', e.toString())),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -1012,12 +1205,16 @@ class SettingsPage extends ConsumerWidget {
     }
   }
 
-  Future<void> _importConfig(BuildContext context, WidgetRef ref) async {
+  Future<void> _importConfig(BuildContext context, WidgetRef ref, S s) async {
     try {
       final data = await Clipboard.getData('text/plain');
-      if (data?.text == null) return;
+      if (data?.text == null || !data!.text!.startsWith('LIGHTNING_CONFIG:')) {
+        throw Exception('Invalid config');
+      }
 
-      final Map<String, dynamic> config = jsonDecode(data!.text!);
+      final encoded = data.text!.substring('LIGHTNING_CONFIG:'.length);
+      final jsonStr = utf8.decode(base64Decode(encoded));
+      final Map<String, dynamic> config = jsonDecode(jsonStr);
       final prefs = await SharedPreferences.getInstance();
 
       for (final entry in config.entries) {
@@ -1037,8 +1234,8 @@ class SettingsPage extends ConsumerWidget {
 
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('配置恢复成功，请重启应用生效'),
+          SnackBar(
+            content: Text(s.get('restore_success')),
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -1046,13 +1243,199 @@ class SettingsPage extends ConsumerWidget {
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('导入失败: 无效的配置格式'),
+          SnackBar(
+            content: Text(s.get('restore_fail')),
             behavior: SnackBarBehavior.floating,
           ),
         );
       }
     }
+  }
+
+  void _showMuxAdvancedDialog(
+    BuildContext context,
+    WidgetRef ref,
+    VpnSettings settings,
+    S s,
+  ) {
+    final concurrencyController = TextEditingController(
+      text: settings.muxConcurrency.toString(),
+    );
+    final theme = Theme.of(context);
+    bool localPadding = settings.muxPadding;
+    String localProtocol = settings.muxProtocol;
+
+    showDialog(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+            ),
+            title: Text(
+              s.get('mux_advanced'),
+              style: const TextStyle(fontWeight: FontWeight.w900),
+            ),
+            content: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // 并发数设置
+                  Text(
+                    s.get('mux_concurrency_label'),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    controller: concurrencyController,
+                    keyboardType: TextInputType.number,
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                    decoration: InputDecoration(
+                      hintText: s.get('default_hint').replaceAll('{value}', '8'),
+                      filled: true,
+                      fillColor: Colors.black.withOpacity(0.15),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide.none,
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(14),
+                        borderSide: BorderSide(
+                          color: theme.colorScheme.primary,
+                          width: 2,
+                        ),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 14,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  // Mux 协议选择
+                  Text(
+                    s.get('mux_protocol_label'),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  ...['h2', 'h2c', 'wechat-video'].map((proto) {
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 6),
+                      decoration: BoxDecoration(
+                        color: theme.cardTheme.color,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: Colors.white.withOpacity(0.05)),
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(14),
+                        clipBehavior: Clip.antiAlias,
+                        child: RadioListTile<String>(
+                          dense: true,
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 12,
+                            vertical: 0,
+                          ),
+                          value: proto,
+                          groupValue: localProtocol,
+                          activeColor: theme.colorScheme.primary,
+                          title: Text(
+                            proto.toUpperCase(),
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          onChanged: (v) {
+                            if (v != null) {
+                              setDialogState(() {
+                                localProtocol = v;
+                              });
+                            }
+                          },
+                        ),
+                      ),
+                    );
+                  }).toList(),
+                  const SizedBox(height: 12),
+                  // Mux 填充选项
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: theme.cardTheme.color,
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: Colors.white.withOpacity(0.05)),
+                    ),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            s.get('mux_padding_label'),
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        Switch(
+                          value: localPadding,
+                          activeColor: theme.colorScheme.primary,
+                          onChanged: (v) {
+                            setDialogState(() {
+                              localPadding = v;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(
+                  s.get('cancel'),
+                  style: TextStyle(color: Colors.grey[600]),
+                ),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  final concurrency = int.tryParse(concurrencyController.text) ?? 8;
+                  ref.read(vpnSettingsProvider.notifier).update(
+                        settings.copyWith(
+                          muxConcurrency: concurrency,
+                          muxPadding: localPadding,
+                          muxProtocol: localProtocol,
+                        ),
+                      );
+                  Navigator.pop(context);
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: theme.colorScheme.primary,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text(s.get('confirm')),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   void _showLogLevelDialog(
@@ -1091,11 +1474,11 @@ class SettingsPage extends ConsumerWidget {
   String _getModeName(VpnMode mode, S s) {
     switch (mode) {
       case VpnMode.global:
-        return '${s.get('global_mode')} (Global)';
+        return s.get('global_mode');
       case VpnMode.rule:
-        return '${s.get('rule_mode')} (Rule)';
+        return s.get('rule_mode');
       case VpnMode.direct:
-        return '${s.get('direct_mode')} (Direct)';
+        return s.get('direct_mode');
     }
   }
 
@@ -1149,25 +1532,25 @@ class SettingsPage extends ConsumerWidget {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('入站端口设置'),
+        title: Text(s.get('inbound_settings')),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
             TextField(
               controller: socksController,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'Socks 端口',
-                hintText: '默认 10808',
+              decoration: InputDecoration(
+                labelText: s.get('socks_port_label'),
+                hintText: s.get('default_hint').replaceAll('{value}', '10808'),
               ),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: httpController,
               keyboardType: TextInputType.number,
-              decoration: const InputDecoration(
-                labelText: 'HTTP 端口',
-                hintText: '默认 10809',
+              decoration: InputDecoration(
+                labelText: s.get('http_port_label'),
+                hintText: s.get('default_hint').replaceAll('{value}', '10809'),
               ),
             ),
           ],
@@ -1248,9 +1631,9 @@ class SettingsPage extends ConsumerWidget {
       context: context,
       builder: (context) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-        title: const Text(
-          '关于 Lightning',
-          style: TextStyle(fontWeight: FontWeight.w900),
+        title: Text(
+          s.get('about_lightning'),
+          style: const TextStyle(fontWeight: FontWeight.w900),
         ),
         content: SizedBox(
           width: MediaQuery.of(context).size.width * 0.85,
@@ -1284,16 +1667,16 @@ class SettingsPage extends ConsumerWidget {
                         ),
                       ),
                       const SizedBox(height: 16),
-                      const Text(
-                        'Lightning VPN',
-                        style: TextStyle(
+                      Text(
+                        s.get('app_name'),
+                        style: const TextStyle(
                           fontWeight: FontWeight.w900,
                           fontSize: 22,
                           letterSpacing: 0.5,
                         ),
                       ),
                       Text(
-                        '版本：16.9.15',
+                        '${s.get('version_label')}：1.0.0',
                         style: TextStyle(
                           color: Colors.grey.shade600,
                           fontSize: 13,
@@ -1305,7 +1688,7 @@ class SettingsPage extends ConsumerWidget {
                 ),
                 const SizedBox(height: 24),
                 Text(
-                  'Lightning 是一款高性能、多协议的代理客户端，致力于提供极速、稳定且安全的网络访问体验。',
+                  s.get('desc_content'),
                   style: TextStyle(
                     fontSize: 14,
                     color: Theme.of(
@@ -1317,21 +1700,21 @@ class SettingsPage extends ConsumerWidget {
                 const SizedBox(height: 20),
                 _buildAboutInfoRow(
                   Icons.code_rounded,
-                  '核心技术',
-                  '基于 Xray-core 构建',
+                  s.get('core_technology'),
+                  s.get('based_on_xray'),
                 ),
                 _buildAboutInfoRow(
                   Icons.security_rounded,
-                  '协议支持',
-                  'VMess, VLESS, Trojan, Shadowsocks, Hysteria2, TUIC, WireGuard',
+                  s.get('protocol_support'),
+                  'VMess, VLESS, Trojan, SS, Hy2, TUIC',
                 ),
                 _buildAboutInfoRow(
                   Icons.link_rounded,
-                  '开源地址',
+                  s.get('open_source_address'),
                   'https://github.com/lightning-xf/lightning-proxy',
                   isLink: true,
                 ),
-                _buildAboutInfoRow(Icons.gavel_rounded, '开源协议', 'GNU AGPLv3'),
+                _buildAboutInfoRow(Icons.gavel_rounded, s.get('open_source_license'), 'GNU AGPLv3'),
               ],
             ),
           ),
@@ -1346,14 +1729,14 @@ class SettingsPage extends ConsumerWidget {
                 await launchUrl(url, mode: LaunchMode.externalApplication);
               }
             },
-            child: const Text(
-              '项目主页',
-              style: TextStyle(fontWeight: FontWeight.bold),
+            child: Text(
+              s.get('project_home'),
+              style: const TextStyle(fontWeight: FontWeight.bold),
             ),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context),
-            child: const Text('关闭'),
+            child: Text(s.get('close')),
           ),
         ],
       ),

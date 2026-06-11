@@ -11,14 +11,20 @@ import 'package:lightning/core/node_provider.dart';
 import 'package:lightning/core/subscription_provider.dart';
 import 'package:lightning/core/config_generator.dart';
 import 'package:lightning/core/log_provider.dart';
+import 'package:lightning/core/proxy_group_model.dart';
+import 'package:lightning/core/proxy_group_provider.dart';
 import 'package:lightning/pages/settings_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'package:lightning/core/localization_provider.dart';
+
+enum VpnStatus { disconnected, connecting, connected }
 enum VpnMode { global, rule, direct }
 
 class VpnState {
   final bool isRunning;
+  final VpnStatus status;
   final bool isStarting;
   final int
   connectionStage; // 0: disconnected, 1: connecting net, 2: encrypting, 3: connected
@@ -33,6 +39,7 @@ class VpnState {
 
   VpnState({
     this.isRunning = false,
+    this.status = VpnStatus.disconnected,
     this.isStarting = false,
     this.connectionStage = 0,
     this.currentNodeName,
@@ -47,6 +54,7 @@ class VpnState {
 
   VpnState copyWith({
     bool? isRunning,
+    VpnStatus? status,
     bool? isStarting,
     int? connectionStage,
     String? currentNodeName,
@@ -61,6 +69,7 @@ class VpnState {
   }) {
     return VpnState(
       isRunning: isRunning ?? this.isRunning,
+      status: status ?? this.status,
       isStarting: isStarting ?? this.isStarting,
       connectionStage: connectionStage ?? this.connectionStage,
       currentNodeName: currentNodeName ?? this.currentNodeName,
@@ -138,13 +147,33 @@ class VpnNotifier extends StateNotifier<VpnState> with WidgetsBindingObserver {
   }
 
   Future<void> _handleRestart() async {
-    final node = ref.read(selectedNodeProvider);
-    if (node != null) {
-      // Restart VPN with new config
-      await ProxyChannel.stopProxy();
-      // Wait a bit for the service to fully stop
-      await Future.delayed(const Duration(milliseconds: 800));
-      toggleVpn(node);
+    final settings = ref.read(vpnSettingsProvider);
+    final s = ref.read(localizationProvider);
+    
+    // 1. 停止当前 VPN
+    await ProxyChannel.stopProxy();
+    
+    // 2. 轮询检查状态直到真正停止，或达到超时时间 (3秒)
+    int retry = 0;
+    while (state.status != VpnStatus.disconnected && retry < 15) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      retry++;
+    }
+
+    // 3. 再次等待一小段时间确保端口释放
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    // 4. 根据当前模式重启
+    if (settings.useProxyGroup) {
+      final group = ref.read(selectedGroupProvider);
+      if (group != null) {
+        toggleVpn(group: group);
+      }
+    } else {
+      final node = ref.read(selectedNodeProvider);
+      if (node != null) {
+        toggleVpn(node: node);
+      }
     }
   }
 
@@ -165,6 +194,7 @@ class VpnNotifier extends StateNotifier<VpnState> with WidgetsBindingObserver {
       final String? lastNodeName = prefs.getString('last_node_name');
       state = state.copyWith(
         isRunning: true,
+        status: VpnStatus.connected,
         connectionStage: 3,
         currentNodeName: lastNodeName,
       );
@@ -172,7 +202,11 @@ class VpnNotifier extends StateNotifier<VpnState> with WidgetsBindingObserver {
       if (state.isRunning || _statsTimer != null) {
         _stopStatsTimer();
       }
-      state = state.copyWith(isRunning: false, connectionStage: 0);
+      state = state.copyWith(
+        isRunning: false,
+        status: VpnStatus.disconnected,
+        connectionStage: 0,
+      );
     }
   }
 
@@ -337,6 +371,10 @@ class VpnNotifier extends StateNotifier<VpnState> with WidgetsBindingObserver {
         domesticDns: settings.domesticDns,
         enableIPv6: settings.enableIPv6,
         dnsHosts: settings.dnsHosts,
+        // Mux 高级参数
+        muxConcurrency: settings.muxConcurrency,
+        muxPadding: settings.muxPadding,
+        muxProtocol: settings.muxProtocol,
       );
       ref
           .read(logProvider.notifier)
@@ -376,48 +414,138 @@ class VpnNotifier extends StateNotifier<VpnState> with WidgetsBindingObserver {
     }
   }
 
-  void toggleVpn(NodeModel? node) async {
-    if (state.isRunning) {
-      final bool isSwitching =
-          node != null && node.name != state.currentNodeName;
+  void _startVpnWithGroup(ProxyGroupModel group) async {
+    ref.read(logProvider.notifier).addLog('info', '准备连接代理组: ${group.name}');
+    state = state.copyWith(isStarting: true, connectionStage: 1);
 
+    try {
+      resetStats();
+      ref.read(logProvider.notifier).addLog('debug', '正在准备资源文件...');
+      final assetDir = await _prepareAssets();
+
+      await Future.delayed(const Duration(milliseconds: 600));
+      state = state.copyWith(connectionStage: 2);
       ref
           .read(logProvider.notifier)
-          .addLog('info', isSwitching ? '正在切换节点...' : '正在停止 VPN...');
+          .addLog('debug', '[Flutter] 连接阶段推进到 2 (配置生成)');
+
+      await Future.delayed(const Duration(milliseconds: 800));
+
+      ref.read(logProvider.notifier).addLog('debug', '[Flutter] 读取路由规则和设置...');
+      final rules = ref.read(routingProvider);
+      final settings = ref.read(vpnSettingsProvider);
+      final prefs = await SharedPreferences.getInstance();
+      final proxyApps = prefs.getStringList('proxy_apps') ?? [];
+      final nodes = ref.read(nodeProvider);
+      final groups = ref.read(proxyGroupProvider);
+
       ref
           .read(logProvider.notifier)
           .addLog(
             'debug',
-            '[Flutter] 当前状态: isRunning=${state.isRunning}, isSwitching=$isSwitching',
+            '[Flutter] 生成 Xray 配置 (代理组), 模式: ${settings.mode}, 规则数: ${rules.length}',
           );
+      final configDns = settings.mode == VpnMode.direct
+          ? '223.5.5.5, 114.114.114.114'
+          : settings.dns;
+      ref
+          .read(logProvider.notifier)
+          .addLog(
+            'debug',
+            '[Flutter] DNS 配置: $configDns (模式: ${settings.mode})',
+          );
+
+      final config = ConfigGenerator.generateConfigWithGroups(
+        allNodes: nodes,
+        groups: groups,
+        selectedGroupId: group.id,
+        rules: rules,
+        mode: settings.mode,
+        proxyApps: proxyApps,
+        bypassLocal: settings.bypassLocal,
+        muxEnabled: settings.muxEnabled,
+        tcpCongestion: settings.tcpCongestion,
+        allowLan: settings.allowLan,
+        logLevel: settings.logLevel,
+        socksPort: settings.socksPort,
+        httpPort: settings.httpPort,
+        dns: configDns,
+        fakeDns: settings.fakeDns,
+        remoteDns: settings.remoteDns,
+        domesticDns: settings.domesticDns,
+        enableIPv6: settings.enableIPv6,
+        dnsHosts: settings.dnsHosts,
+        // Mux 高级参数
+        muxConcurrency: settings.muxConcurrency,
+        muxPadding: settings.muxPadding,
+        muxProtocol: settings.muxProtocol,
+      );
+      ref
+          .read(logProvider.notifier)
+          .addLog('debug', '[Flutter] Xray 配置生成完成, 长度: ${config.length} 字符');
+
+      ref.read(logProvider.notifier).addLog('info', '正在下发配置到内核并请求 VPN 权限...');
+      state = state.copyWith(currentNodeName: group.name);
+
+      await prefs.setString('last_node_name', group.name);
+
+      final payload =
+          "__XRAY_ASSET_DIR__=$assetDir\n"
+          "__XRAY_PROXY_APPS__=${proxyApps.join(',')}\n"
+          "__XRAY_BYPASS_APPS__=${settings.bypassApps}\n"
+          "__XRAY_ALLOW_LAN__=${settings.allowLan}\n"
+          "__XRAY_DNS_SERVERS__=$configDns\n"
+          "$config";
+
+      ref
+          .read(logProvider.notifier)
+          .addLog('debug', '[Flutter] Payload 总长度: ${payload.length} 字符');
+      ref
+          .read(logProvider.notifier)
+          .addLog('debug', '[Flutter] 调用 ProxyChannel.startProxy()...');
+
+      await ProxyChannel.startProxy(payload, group.name);
+      ref
+          .read(logProvider.notifier)
+          .addLog(
+            'info',
+            '[Flutter] ProxyChannel.startProxy() 调用完成, 等待原生回调...',
+          );
+    } catch (e, stack) {
+      ref.read(logProvider.notifier).addLog('error', '启动 VPN 失败: $e');
+      ref.read(logProvider.notifier).addLog('debug', '堆栈: $stack');
+      state = state.copyWith(isStarting: false, isRunning: false);
+    }
+  }
+
+  void toggleVpn({NodeModel? node, ProxyGroupModel? group}) async {
+    if (state.isRunning) {
+      final bool isSwitchingNode =
+          node != null && node.name != state.currentNodeName;
+      final bool isSwitchingGroup =
+          group != null && group.name != state.currentNodeName;
+
+      ref
+          .read(logProvider.notifier)
+          .addLog('info', (isSwitchingNode || isSwitchingGroup) ? '正在切换...' : '正在停止 VPN...');
       try {
         ref
             .read(logProvider.notifier)
             .addLog('debug', '[Flutter] 调用 ProxyChannel.stopProxy()...');
         await ProxyChannel.stopProxy();
-        ref
-            .read(logProvider.notifier)
-            .addLog('debug', '[Flutter] ProxyChannel.stopProxy() 完成');
 
-        if (isSwitching) {
-          ref
-              .read(logProvider.notifier)
-              .addLog('debug', '[Flutter] 等待服务完全停止...');
-          bool vpnStopped = false;
-          for (int retry = 0; retry < 10 && !vpnStopped; retry++) {
-            await Future.delayed(const Duration(milliseconds: 200));
-            final currentState = ref.read(vpnProvider);
-            if (!currentState.isRunning) {
-              vpnStopped = true;
-            }
-          }
+        if (isSwitchingNode) {
           _startVpn(node);
+        } else if (isSwitchingGroup) {
+          _startVpnWithGroup(group);
         }
       } catch (e) {
         ref.read(logProvider.notifier).addLog('error', '断开 VPN 失败: $e');
       }
     } else {
-      if (node != null) {
+      if (group != null) {
+        _startVpnWithGroup(group);
+      } else if (node != null) {
         _startVpn(node);
       }
     }

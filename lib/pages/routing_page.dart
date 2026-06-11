@@ -3,6 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lightning/core/routing_provider.dart';
 import 'package:lightning/core/rule_model.dart';
+import 'package:lightning/core/rule_set_provider.dart';
+import 'package:lightning/core/rule_set_model.dart';
+import 'package:lightning/pages/rule_set_page.dart';
 
 class RoutingPage extends ConsumerWidget {
   const RoutingPage({super.key});
@@ -10,7 +13,9 @@ class RoutingPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final rules = ref.watch(routingProvider);
+    final ruleSets = ref.watch(ruleSetProvider);
     final theme = Theme.of(context);
+    final primaryColor = theme.colorScheme.primary;
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
@@ -21,6 +26,18 @@ class RoutingPage extends ConsumerWidget {
         ),
         actions: [
           IconButton(
+            icon: const Icon(Icons.rule, size: 24),
+            onPressed: () {
+              HapticFeedback.lightImpact();
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const RuleSetPage()),
+              );
+            },
+            tooltip: '规则集',
+          ),
+          const SizedBox(width: 8),
+          IconButton(
             icon: const Icon(Icons.add_circle_outline_rounded, size: 24),
             onPressed: () {
               HapticFeedback.lightImpact();
@@ -30,91 +47,231 @@ class RoutingPage extends ConsumerWidget {
           const SizedBox(width: 8),
         ],
       ),
-      body: rules.isEmpty
-          ? _buildEmptyState(context)
-          : ListView.builder(
-              physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
-              itemCount: rules.length,
-              itemBuilder: (context, index) {
-                final rule = rules[index];
-                return Container(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  decoration: BoxDecoration(
-                    color: theme.cardTheme.color,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: Colors.white.withOpacity(0.04)),
+      body: ListView(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 100),
+        children: [
+          // 规则集区域
+          if (ruleSets.isNotEmpty) ...[
+            _buildSectionHeader(theme, '规则集'),
+            ...ruleSets.map((ruleSet) => _buildRuleSetCard(
+                  context,
+                  ref,
+                  ruleSet,
+                  theme,
+                  primaryColor,
+                )),
+            const SizedBox(height: 20),
+          ],
+          
+          // 自定义规则区域
+          _buildSectionHeader(theme, '自定义规则'),
+          if (rules.isEmpty)
+            _buildEmptyState(context)
+          else
+            ...rules.map((rule) => _buildRuleCard(
+                  context,
+                  ref,
+                  rule,
+                  theme,
+                )),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(ThemeData theme, String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 8, bottom: 12, top: 8),
+      child: Text(
+        title,
+        style: TextStyle(
+          color: theme.colorScheme.primary.withOpacity(0.8),
+          fontWeight: FontWeight.w800,
+          fontSize: 11,
+          letterSpacing: 1.0,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRuleSetCard(
+    BuildContext context,
+    WidgetRef ref,
+    RuleSetModel ruleSet,
+    ThemeData theme,
+    Color primaryColor,
+  ) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: theme.cardTheme.color,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.04)),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: SwitchListTile(
+          value: ruleSet.enabled,
+          onChanged: (v) {
+            HapticFeedback.lightImpact();
+            ref.read(ruleSetProvider.notifier).toggleRuleSet(ruleSet.id);
+          },
+          title: Text(
+            ruleSet.name,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+            ),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 1,
                   ),
-                  child: Material(
-                    color: Colors.transparent,
-                    borderRadius: BorderRadius.circular(20),
-                    clipBehavior: Clip.antiAlias, // 修复点击时的暗色三角问题
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 4,
-                      ),
-                      title: Text(
-                        rule.outboundTag.toUpperCase(),
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w800,
-                          fontSize: 16,
-                        ),
-                      ),
-                      subtitle: Padding(
-                        padding: const EdgeInsets.only(top: 6),
-                        child: Text(
-                          _getRuleSummary(rule),
-                          style: TextStyle(
-                            color: Colors.grey.shade600,
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                      trailing: Switch(
-                        value: rule.enabled,
-                        onChanged: (v) {
-                          HapticFeedback.lightImpact();
-                          ref
-                              .read(routingProvider.notifier)
-                              .toggleRule(rule.id);
-                        },
-                        activeColor: theme.colorScheme.primary,
-                      ),
-                      onLongPress: () {
-                        HapticFeedback.mediumImpact();
-                        _showRuleOptions(context, ref, rule);
-                      },
+                  decoration: BoxDecoration(
+                    color: primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    _getRuleSetTypeText(ruleSet.format),
+                    style: TextStyle(
+                      fontSize: 9,
+                      fontWeight: FontWeight.w900,
+                      color: primaryColor,
                     ),
                   ),
-                );
-              },
+                ),
+                const SizedBox(width: 6),
+                Text(
+                  _getRuleSetStatusText(ruleSet),
+                  style: TextStyle(
+                    color: Colors.grey.shade600,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
             ),
+          ),
+          activeColor: primaryColor,
+        ),
+      ),
     );
+  }
+
+  Widget _buildRuleCard(
+    BuildContext context,
+    WidgetRef ref,
+    RuleModel rule,
+    ThemeData theme,
+  ) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: theme.cardTheme.color,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.04)),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: ListTile(
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: 4,
+          ),
+          title: Text(
+            rule.outboundTag.toUpperCase(),
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+            ),
+          ),
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              _getRuleSummary(rule),
+              style: TextStyle(
+                color: Colors.grey.shade600,
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          trailing: Switch(
+            value: rule.enabled,
+            onChanged: (v) {
+              HapticFeedback.lightImpact();
+              ref.read(routingProvider.notifier).toggleRule(rule.id);
+            },
+            activeColor: theme.colorScheme.primary,
+          ),
+          onLongPress: () {
+            HapticFeedback.mediumImpact();
+            _showRuleOptions(context, ref, rule);
+          },
+        ),
+      ),
+    );
+  }
+
+  String _getRuleSetTypeText(RuleSetFormat format) {
+    switch (format) {
+      case RuleSetFormat.text:
+        return 'TEXT';
+      case RuleSetFormat.yaml:
+        return 'YAML';
+      case RuleSetFormat.json:
+        return 'JSON';
+    }
+  }
+
+  String _getRuleSetStatusText(RuleSetModel ruleSet) {
+    if (ruleSet.lastUpdated != null) {
+      return '更新于 ${_formatDateTime(ruleSet.lastUpdated!)}';
+    }
+    if (ruleSet.url != null) {
+      return '远程订阅';
+    }
+    return '本地规则';
+  }
+
+  String _formatDateTime(DateTime dateTime) {
+    return '${dateTime.month}/${dateTime.day} ${dateTime.hour}:${dateTime.minute.toString().padLeft(2, '0')}';
   }
 
   Widget _buildEmptyState(BuildContext context) {
     return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.alt_route_rounded, size: 64, color: Colors.grey.shade800),
-          const SizedBox(height: 20),
-          const Text(
-            '暂无自定义规则',
-            style: TextStyle(
-              color: Colors.grey,
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
+      child: Padding(
+        padding: const EdgeInsets.only(top: 40),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.alt_route_rounded, size: 64, color: Colors.grey.shade800),
+            const SizedBox(height: 20),
+            const Text(
+              '暂无自定义规则',
+              style: TextStyle(
+                color: Colors.grey,
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          const Text(
-            '点击右上角按钮添加分流规则',
-            style: TextStyle(color: Colors.grey, fontSize: 13),
-          ),
-        ],
+            const SizedBox(height: 8),
+            const Text(
+              '点击右上角按钮添加分流规则',
+              style: TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+          ],
+        ),
       ),
     );
   }

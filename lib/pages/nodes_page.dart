@@ -752,7 +752,7 @@ class _NodesPageState extends ConsumerState<NodesPage> {
               } else {
                 ref.read(selectedNodeProvider.notifier).setNode(node);
                 if (ref.read(vpnProvider).isRunning) {
-                  ref.read(vpnProvider.notifier).toggleVpn(node);
+                  ref.read(vpnProvider.notifier).toggleVpn(node: node);
                 }
               }
             },
